@@ -12,6 +12,10 @@ export interface IProduct extends Document {
     rating: number;
     reviews: number;
     brand: string;
+    condition: string;
+    skillLevel: string;
+    inStock: boolean;
+    stockCount: number;
     specifications: { label: string; value: string }[];
     customerReviews: {
         id: string;
@@ -24,7 +28,21 @@ export interface IProduct extends Document {
 
 const ProductSchema: Schema = new Schema({
     name: { type: String, required: true },
-    category: { type: String, required: true },
+    category: {
+        type: String,
+        required: true,
+        enum: [
+            'Guitars',
+            'Bass',
+            'Drums & Percussion',
+            'Keyboards & Pianos',
+            'Wind Instruments',
+            'String Instruments',
+            'DJ & Electronics',
+            'Studio & Recording',
+            'Accessories'
+        ]
+    },
     price: { type: Number, required: true },
     originalPrice: { type: Number },
     onSale: { type: Boolean, default: false },
@@ -34,6 +52,20 @@ const ProductSchema: Schema = new Schema({
     rating: { type: Number, default: 0 },
     reviews: { type: Number, default: 0 },
     brand: { type: String, required: true },
+    condition: {
+        type: String,
+        required: true,
+        enum: ['New', 'Used - Like New', 'Used - Good', 'Used - Fair'],
+        default: 'New'
+    },
+    skillLevel: {
+        type: String,
+        required: true,
+        enum: ['Beginner', 'Intermediate', 'Professional'],
+        default: 'Beginner'
+    },
+    inStock: { type: Boolean, default: true },
+    stockCount: { type: Number, default: 0 },
     specifications: [{
         label: { type: String, required: true },
         value: { type: String, required: true }
