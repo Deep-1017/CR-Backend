@@ -9,6 +9,7 @@ import swaggerUi from 'swagger-ui-express';
 import productRoutes from './routes/product.routes';
 import orderRoutes from './routes/order.routes';
 import authRoutes from './routes/auth.routes';
+import uploadRoutes from './routes/upload.routes';
 import { notFound, errorHandler } from './middleware/error.middleware';
 import env from './config/env';
 import { morganStream } from './utils/logger';
@@ -33,12 +34,12 @@ app.use(
 );
 app.use(helmet());
 
-// FIX-23: Morgan flows through Winston in all environments
+// Morgan flows through Winston in all environments
 app.use(morgan(env.isProduction ? 'combined' : 'dev', {
     stream: env.isProduction ? morganStream : undefined,
 }));
 
-// FIX-15: Body size limits
+// Body size limits
 app.use(express.json({ limit: '50kb' }));
 app.use(express.urlencoded({ extended: true, limit: '50kb' }));
 
@@ -60,9 +61,9 @@ const authLimiter = rateLimit({
 app.use('/api', apiLimiter);
 app.use('/api/v1/auth', authLimiter);
 
-// FIX-10: Health endpoint
+// Health endpoint
 app.get('/health', (_req, res) => {
-    const dbState = mongoose.connection.readyState; // 1 = connected
+    const dbState = mongoose.connection.readyState;
     const status = dbState === 1 ? 'ok' : 'degraded';
     res.status(dbState === 1 ? 200 : 503).json({
         status,
@@ -72,13 +73,14 @@ app.get('/health', (_req, res) => {
     });
 });
 
-// FIX-24: Swagger / OpenAPI docs
+// Swagger / OpenAPI docs
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/orders', orderRoutes);
+app.use('/api/v1/upload', uploadRoutes);
 
 // 404 and error handlers
 app.use(notFound);

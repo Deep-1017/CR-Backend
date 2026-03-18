@@ -61,7 +61,16 @@ const OrderSchema: Schema = new Schema({
         default: 'Pending'
     }
 }, {
-    timestamps: true
+    timestamps: true,
+    toJSON: {
+        virtuals: true, // exposes the virtual 'id' field (string version of _id)
+        transform: (_doc, ret) => {
+            const obj = ret as any;
+            delete obj._id;
+            delete obj.__v;
+            return ret;
+        }
+    }
 });
 
 export default mongoose.model<IOrder>('Order', OrderSchema);
