@@ -9,8 +9,7 @@ import { addOrderSchema, updateOrderStatusSchema } from '../schemas';
 const router = express.Router();
 
 router.route('/')
-    // Any visitor can place an order (no login required)
-    .post(validate(addOrderSchema), addOrderItems)
+    .post(protect, validate(addOrderSchema), addOrderItems)
     .get(protect, admin, getOrders);                               // admin only — list all orders
 
 router.route('/:id')

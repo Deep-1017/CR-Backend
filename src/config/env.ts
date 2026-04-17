@@ -10,6 +10,8 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
   JWT_EXPIRES_IN: z.string().default('7d'),
   ALLOWED_ORIGINS: z.string().optional(),
+  RAZORPAY_KEY_ID: z.string().optional(),
+  RAZORPAY_SECRET: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

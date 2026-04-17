@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it } from '@jest/globals';
 import request from 'supertest';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
@@ -12,7 +13,7 @@ const customerUser = { name: 'Customer', email: 'customer@example.com', password
 
 const sampleProduct = {
     name: 'Test Guitar',
-    category: 'Electric Guitar',
+    category: 'Speakers',
     price: 499,
     image: '/assets/test-guitar.jpg',
     description: 'A test guitar',

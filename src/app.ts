@@ -10,6 +10,7 @@ import productRoutes from './routes/product.routes';
 import orderRoutes from './routes/order.routes';
 import authRoutes from './routes/auth.routes';
 import uploadRoutes from './routes/upload.routes';
+import paymentRoutes from './routes/payment.routes';
 import { notFound, errorHandler } from './middleware/error.middleware';
 import env from './config/env';
 import { morganStream } from './utils/logger';
@@ -81,6 +82,8 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/upload', uploadRoutes);
+app.use('/api/v1/payments', paymentRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // 404 and error handlers
 app.use(notFound);
