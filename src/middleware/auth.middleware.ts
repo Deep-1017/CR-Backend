@@ -1,57 +1,54 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt, { JwtPayload } from 'jsonwebtoken';
-import asyncHandler from '../utils/asyncHandler';
-import AppError from '../utils/appError';
-import env from '../config/env';
-import User from '../models/user.model';
+import { verifyToken } from '../utils/jwt';
 
-interface DecodedToken extends JwtPayload {
-    userId: string;
-    role: 'customer' | 'admin';
-}
-
-export const protect = asyncHandler(async (req: Request, _res: Response, next: NextFunction) => {
-    let token: string | undefined;
-
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-        token = req.headers.authorization.split(' ')[1];
-    }
+export const protect = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const token =
+      req.cookies?.auth_token ||
+      (req.headers.authorization?.startsWith('Bearer ')
+        ? req.headers.authorization.split(' ')[1]
+        : null);
 
     if (!token) {
-        throw new AppError('Not authorized, no token', 401);
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required. Please sign in.',
+      });
     }
 
-    try {
-        const decoded = jwt.verify(token, env.JWT_SECRET) as DecodedToken;
-
-        const user = await User.findById(decoded.userId).select('-password');
-
-        if (!user) {
-            throw new AppError('User not found', 401);
-        }
-
-        // FIX-18: req.user is now properly typed via src/types/express.d.ts
-        req.user = {
-            id: user._id.toString(),
-            role: user.role,
-            email: user.email,
-            name: user.name,
-        };
-
-        next();
-    } catch (err) {
-        // FIX-13: Differentiate between expired and invalid tokens
-        if (err instanceof jwt.TokenExpiredError) {
-            throw new AppError('Session expired, please log in again', 401);
-        }
-        throw new AppError('Not authorized, invalid token', 401);
-    }
-});
-
-export const admin = (req: Request, _res: Response, next: NextFunction) => {
-    if (req.user && req.user.role === 'admin') {
-        next();
-    } else {
-        throw new AppError('Not authorized as admin', 403);
-    }
+    const decoded = verifyToken(token);
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      name: '',
+    };
+    next();
+  } catch {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid or expired session. Please sign in again.',
+    });
+  }
 };
+
+export const requireAdmin = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const authUser = req.user as { role?: string } | undefined;
+  if (authUser?.role !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. Admin privileges required.',
+    });
+  }
+  next();
+};
+
+export const admin = requireAdmin;

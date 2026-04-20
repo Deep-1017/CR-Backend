@@ -1,35 +1,47 @@
-import app from './app';
-import connectDB from './config/db';
-import env from './config/env';
+import 'dotenv/config';
 import mongoose from 'mongoose';
-import logger from './utils/logger';
+import app from './app';
 
-connectDB();
+const PORT = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI!;
 
-const server = app.listen(env.PORT, () => {
-    logger.info(`Server running in ${env.NODE_ENV} mode on port ${env.PORT}`);
-});
+if (!process.env.JWT_SECRET) {
+  console.error('[Fatal] JWT_SECRET is not defined. Exiting.');
+  process.exit(1);
+}
 
-const shutdown = async (signal: string) => {
-    logger.info(`${signal} received — starting graceful shutdown`);
-    server.close(async () => {
-        logger.info('HTTP server closed');
-        await mongoose.connection.close();
-        logger.info('MongoDB connection closed');
-        process.exit(0);
-    });
-    // Force-kill if graceful shutdown takes too long
-    setTimeout(() => {
-        logger.error('Graceful shutdown timed out — forcing exit');
-        process.exit(1);
-    }, 10_000);
+const connectDB = async (retries = 5): Promise<void> => {
+  try {
+    await mongoose.connect(MONGO_URI);
+    console.log('[DB] MongoDB connected');
+  } catch (err) {
+    if (retries > 0) {
+      console.warn(`[DB] Retrying in 3s... (${retries} attempts left)`);
+      await new Promise((r) => setTimeout(r, 3000));
+      return connectDB(retries - 1);
+    }
+    console.error('[DB] Failed to connect:', err);
+    process.exit(1);
+  }
 };
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+const start = async () => {
+  await connectDB();
 
-// Catch unhandled promise rejections
-process.on('unhandledRejection', (reason) => {
-    logger.error('Unhandled promise rejection', { reason });
-    shutdown('unhandledRejection');
-});
+  const server = app.listen(PORT, () => {
+    console.log(`[Server] http://localhost:${PORT}  (${process.env.NODE_ENV})`);
+  });
+
+  const shutdown = (signal: string) => {
+    console.log(`\n[Server] ${signal} — shutting down gracefully...`);
+    server.close(async () => {
+      await mongoose.connection.close();
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+};
+
+start();

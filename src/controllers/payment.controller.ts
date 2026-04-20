@@ -12,8 +12,14 @@ import AppError from '../utils/appError';
 import logger from '../utils/logger';
 import { CreatePaymentOrderInput, VerifyPaymentWebhookInput } from '../validation/paymentValidation';
 
+const buildRazorpayReceipt = (): string => {
+    // Razorpay receipts must stay within 40 characters.
+    return `rcpt_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
+};
+
 export const createRazorpayOrder = asyncHandler(async (req: Request, res: Response) => {
-    const { cartItems, totalAmount, currency } = req.body as CreatePaymentOrderInput;
+    const authUser = req.user as { id?: string; name?: string; email?: string } | undefined;
+    const { customer, cartItems, pricing, currency } = req.body as CreatePaymentOrderInput;
 
     const invalidProductIds = cartItems
         .map((item) => item.productId)
@@ -54,44 +60,61 @@ export const createRazorpayOrder = asyncHandler(async (req: Request, res: Respon
         };
     });
 
-    const computedTotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const computedSubtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const computedTax = Number(pricing.tax.toFixed(2));
+    const computedShipping = Number(pricing.shipping.toFixed(2));
+    const computedTotal = Number((computedSubtotal + computedTax + computedShipping).toFixed(2));
 
-    if (computedTotal !== totalAmount) {
+    if (Number(pricing.subtotal.toFixed(2)) !== Number(computedSubtotal.toFixed(2))) {
+        throw new AppError('Subtotal amount mismatch', 400);
+    }
+
+    if (Number(pricing.total.toFixed(2)) !== computedTotal) {
         throw new AppError('Total amount mismatch', 400);
     }
 
     let razorpayOrder: any;
     try {
         razorpayOrder = await razorpay.orders.create({
-            amount: Math.round(totalAmount * 100),
+            amount: Math.round(computedTotal * 100),
             currency,
-            receipt: `receipt_${uuidv4()}`,
+            receipt: buildRazorpayReceipt(),
             payment_capture: true,
         });
     } catch (error) {
+        const razorpayError = error as {
+            message?: string;
+            error?: {
+                code?: string;
+                description?: string;
+                field?: string;
+                source?: string;
+                step?: string;
+                reason?: string;
+            };
+            statusCode?: number;
+        };
+
         logger.error('Razorpay order creation failed', {
             error: error instanceof Error ? error.message : error,
+            razorpayError: razorpayError.error,
+            statusCode: razorpayError.statusCode,
             cartItems,
-            totalAmount,
+            pricing,
             currency,
-            userId: req.user?.id,
+            userId: authUser?.id,
         });
         throw new AppError('Failed to create Razorpay order', 500);
     }
 
-    const [firstName, ...lastNameParts] = (req.user?.name || 'Guest').split(' ');
     const order = await Order.create({
-        userId: req.user?.id,
+        userId: authUser?.id,
         customer: {
-            firstName: firstName || 'Guest',
-            lastName: lastNameParts.join(' ') || 'User',
-            email: req.user?.email ?? 'guest@unknown.com',
-            address: '',
-            city: '',
-            zipCode: '',
+            ...customer,
+            email: authUser?.email ?? customer.email,
         },
         items,
-        totalAmount,
+        totalAmount: computedTotal,
         paymentId: razorpayOrder.id,
         paymentStatus: 'pending',
         paymentMethod: 'razorpay',
@@ -108,13 +131,14 @@ export const createRazorpayOrder = asyncHandler(async (req: Request, res: Respon
     res.status(201).json({
         orderId: order.id,
         razorpayOrderId: razorpayOrder.id,
-        amount: totalAmount,
+        amount: razorpayOrder.amount,
         currency,
         key: env.RAZORPAY_KEY_ID,
     });
 });
 
 export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Response) => {
+    const requestId = (req as Request & { id?: string }).id ?? 'unknown';
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body as VerifyPaymentWebhookInput;
 
     const generatedSignature = crypto
@@ -126,7 +150,7 @@ export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Resp
         logger.warn('Razorpay webhook signature mismatch', {
             razorpayOrderId: razorpay_order_id,
             razorpayPaymentId: razorpay_payment_id,
-            requestId: req.id,
+            requestId,
         });
         throw new AppError('Invalid webhook signature', 403);
     }
@@ -139,7 +163,7 @@ export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Resp
         logger.warn('Razorpay webhook order not found', {
             razorpayOrderId: razorpay_order_id,
             razorpayPaymentId: razorpay_payment_id,
-            requestId: req.id,
+            requestId,
         });
         throw new AppError('Order not found', 404);
     }
@@ -181,7 +205,7 @@ export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Resp
             razorpayOrderId: razorpay_order_id,
             razorpayPaymentId: razorpay_payment_id,
             userId: order.userId,
-            requestId: req.id,
+            requestId,
         });
 
         res.status(200).json({ message: 'Payment verified and order confirmed' });
@@ -204,7 +228,7 @@ export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Resp
             orderId: order.id,
             razorpayOrderId: razorpay_order_id,
             razorpayPaymentId: razorpay_payment_id,
-            requestId: req.id,
+            requestId,
         });
         throw new AppError('Failed to verify payment webhook', 500);
     }

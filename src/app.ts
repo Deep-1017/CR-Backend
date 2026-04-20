@@ -1,92 +1,64 @@
 import express from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
-import morgan from 'morgan';
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
-import mongoose from 'mongoose';
-import { v4 as uuidv4 } from 'uuid';
-import swaggerUi from 'swagger-ui-express';
+import passport from './config/passport';
+import authRoutes from './routes/auth.routes';
 import productRoutes from './routes/product.routes';
 import orderRoutes from './routes/order.routes';
-import authRoutes from './routes/auth.routes';
-import uploadRoutes from './routes/upload.routes';
 import paymentRoutes from './routes/payment.routes';
-import { notFound, errorHandler } from './middleware/error.middleware';
-import env from './config/env';
-import { morganStream } from './utils/logger';
-import { swaggerSpec } from './config/swagger';
+import uploadRoutes from './routes/upload.routes';
+import { errorHandler } from './middleware/error.middleware';
 
 const app = express();
 
-// Request ID
-app.use((req, _res, next) => {
-    req.id = uuidv4();
-    next();
-});
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-// Security & parsing middleware
-const allowedOrigins = env.ALLOWED_ORIGINS?.split(',').map((origin) => origin.trim()).filter(Boolean);
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim());
 
 app.use(
-    cors({
-        origin: allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : undefined,
-        credentials: true,
-    })
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS blocked for origin: ${origin}`));
+      }
+    },
+    credentials: true,
+  })
 );
-app.use(helmet());
 
-// Morgan flows through Winston in all environments
-app.use(morgan(env.isProduction ? 'combined' : 'dev', {
-    stream: env.isProduction ? morganStream : undefined,
-}));
-
-// Body size limits
-app.use(express.json({ limit: '50kb' }));
-app.use(express.urlencoded({ extended: true, limit: '50kb' }));
-
-// Rate limiting
-const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    standardHeaders: true,
-    legacyHeaders: false,
-});
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+app.use(cookieParser());
 
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 10,
-    standardHeaders: true,
-    legacyHeaders: false,
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, message: 'Too many requests. Please wait 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
-app.use('/api', apiLimiter);
-app.use('/api/v1/auth', authLimiter);
-
-// Health endpoint
-app.get('/health', (_req, res) => {
-    const dbState = mongoose.connection.readyState;
-    const status = dbState === 1 ? 'ok' : 'degraded';
-    res.status(dbState === 1 ? 200 : 503).json({
-        status,
-        db: dbState === 1 ? 'connected' : 'disconnected',
-        uptime: process.uptime(),
-        timestamp: new Date().toISOString(),
-    });
-});
-
-// Swagger / OpenAPI docs
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-
-// Routes
-app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/products', productRoutes);
-app.use('/api/v1/orders', orderRoutes);
-app.use('/api/v1/upload', uploadRoutes);
-app.use('/api/v1/payments', paymentRoutes);
+app.use(passport.initialize());
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/upload', uploadRoutes);
 
-// 404 and error handlers
-app.use(notFound);
+app.get('/health', (_req, res) =>
+  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+);
+
+app.use((_req, res) => {
+  res.status(404).json({ success: false, message: 'Route not found.' });
+});
+
 app.use(errorHandler);
 
 export default app;

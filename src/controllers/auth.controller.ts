@@ -1,113 +1,247 @@
-import { Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
-import asyncHandler from '../utils/asyncHandler';
-import AppError from '../utils/appError';
-import User from '../models/user.model';
-import env from '../config/env';
+import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
+import User from '../models/User';
+import {
+  registerSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from '../schemas/auth.schema';
+import { generateToken, setTokenCookie, clearTokenCookie } from '../utils/jwt';
 
-const generateToken = (userId: string, role: string) => {
-    return jwt.sign({ userId, role }, env.JWT_SECRET, {
-        expiresIn: env.JWT_EXPIRES_IN as any,
+const sanitizeUser = (user: any) => ({
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  avatar: user.avatar,
+  role: user.role,
+  provider: user.provider,
+});
+
+export const register = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const parsed = registerSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: parsed.error.flatten().fieldErrors,
+      });
+    }
+
+    const { name, email, password } = parsed.data;
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: 'An account with this email already exists.',
+      });
+    }
+
+    const user = await User.create({ name, email, password, provider: 'local' });
+    const token = generateToken(user);
+    setTokenCookie(res, token);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Account created successfully.',
+      user: sanitizeUser(user),
+      token,
     });
+  } catch (err) {
+    next(err);
+  }
 };
 
-export const register = asyncHandler(async (req: Request, res: Response) => {
-    const { name, email, password } = req.body;
-
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-        throw new AppError('User already exists', 400);
+export const login = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const parsed = loginSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: parsed.error.flatten().fieldErrors,
+      });
     }
 
-    const user = await User.create({
-        name,
-        email,
-        password,
-    });
-
-    const token = generateToken(user._id.toString(), user.role);
-
-    res.status(201).json({
-        token,
-        user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-        },
-    });
-});
-
-export const login = asyncHandler(async (req: Request, res: Response) => {
-    const { email, password } = req.body;
-
+    const { email, password } = parsed.data;
     const user = await User.findOne({ email }).select('+password');
-
     if (!user) {
-        throw new AppError('Invalid email or password', 401);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password.',
+      });
     }
 
-    const isMatch = await user.matchPassword(password);
+    if (user.provider !== 'local') {
+      return res.status(401).json({
+        success: false,
+        message: `This account uses ${user.provider} sign-in. Please use that button instead.`,
+      });
+    }
 
+    const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-        throw new AppError('Invalid email or password', 401);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password.',
+      });
     }
 
-    const token = generateToken(user._id.toString(), user.role);
+    const token = generateToken(user);
+    setTokenCookie(res, token);
 
-    res.json({
-        token,
-        user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-        },
+    return res.status(200).json({
+      success: true,
+      message: 'Login successful.',
+      user: sanitizeUser(user),
+      token,
     });
-});
+  } catch (err) {
+    next(err);
+  }
+};
 
-export const getMe = asyncHandler(async (req: Request, res: Response) => {
-    // FIX-18: req.user is now properly typed via src/types/express.d.ts
-    const userId = req.user?.id;
+export const logout = (_req: Request, res: Response) => {
+  clearTokenCookie(res);
+  return res.status(200).json({ success: true, message: 'Logged out successfully.' });
+};
+
+export const getProfile = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const authUser = req.user as { id?: string; _id?: string } | undefined;
+    const userId = authUser?.id || authUser?._id;
 
     if (!userId) {
-        throw new AppError('Not authorized', 401);
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required. Please sign in.',
+      });
     }
 
     const user = await User.findById(userId);
-
     if (!user) {
-        throw new AppError('User not found', 404);
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    return res.status(200).json({ success: true, user: sanitizeUser(user) });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const forgotPassword = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const parsed = forgotPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, message: 'Invalid email.' });
     }
 
-    res.json({
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
+    const user = await User.findOne({ email: parsed.data.email });
+    if (!user || user.provider !== 'local') {
+      return res.status(200).json({
+        success: true,
+        message: 'If an account with that email exists, a reset link has been sent.',
+      });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenHash = crypto
+      .createHash('sha256')
+      .update(resetToken)
+      .digest('hex');
+
+    (user as any).passwordResetToken = resetTokenHash;
+    (user as any).passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000);
+    await user.save({ validateBeforeSave: false });
+
+    return res.status(200).json({
+      success: true,
+      message: 'If an account with that email exists, a reset link has been sent.',
+      devResetToken: process.env.NODE_ENV === 'development' ? resetToken : undefined,
     });
-});
+  } catch (err) {
+    next(err);
+  }
+};
 
-// FIX-17: Only allow name and password updates — never email or role
-export const updateProfile = asyncHandler(async (req: Request, res: Response) => {
-    // FIX-18: req.user is now properly typed via src/types/express.d.ts
-    const userId = req.user?.id;
-    if (!userId) throw new AppError('Not authorized', 401);
+export const resetPassword = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { token } = req.params;
+    const parsed = resetPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: parsed.error.flatten().fieldErrors,
+      });
+    }
 
-    const user = await User.findById(userId).select('+password');
-    if (!user) throw new AppError('User not found', 404);
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const user = await User.findOne({
+      passwordResetToken: tokenHash,
+      passwordResetExpires: { $gt: new Date() },
+    });
 
-    const { name, password } = req.body; // ONLY these two — never email or role
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reset token is invalid or has expired.',
+      });
+    }
 
-    if (name) user.name = name;
-    if (password) user.password = password; // pre-save hook will re-hash
-
+    user.password = parsed.data.password;
+    (user as any).passwordResetToken = undefined;
+    (user as any).passwordResetExpires = undefined;
     await user.save();
 
-    res.json({
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
+    const jwtToken = generateToken(user);
+    setTokenCookie(res, jwtToken);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password reset successful. You are now logged in.',
+      user: sanitizeUser(user),
+      token: jwtToken,
     });
-});
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const googleCallback = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.redirect(`${process.env.FRONTEND_URL}/login?error=oauth_failed`);
+    }
+    const token = generateToken(user);
+    setTokenCookie(res, token);
+    return res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}`);
+  } catch (err) {
+    next(err);
+  }
+};

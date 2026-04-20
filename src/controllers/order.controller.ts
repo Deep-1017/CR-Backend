@@ -22,7 +22,7 @@ export const getOrderById = asyncHandler(async (req: Request, res: Response) => 
     const order = await Order.findById(req.params.id);
     if (!order) throw new AppError('Order not found', 404);
     // Ownership check — allow admin or the order's own customer email
-    const user = req.user;
+    const user = req.user as { role?: string; email?: string } | undefined;
     if (user?.role !== 'admin' && order.customer.email !== user?.email) {
         throw new AppError('Not authorised to view this order', 403);
     }

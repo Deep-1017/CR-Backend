@@ -21,7 +21,7 @@ beforeAll(async () => {
     mongoServer = await MongoMemoryServer.create();
     await mongoose.connect(mongoServer.getUri());
 
-    const res = await request(app).post('/api/v1/auth/register').send(customerUser);
+    const res = await request(app).post('/api/auth/register').send(customerUser);
     customerToken = res.body.token;
 });
 
@@ -56,7 +56,7 @@ describe('Payment order creation', () => {
 
         jest.spyOn(razorpay.orders as any, 'create').mockResolvedValueOnce({
             id: 'order_test_razorpay_123',
-            amount: 75000,
+            amount: 82500,
             currency: 'INR',
         });
 
@@ -64,25 +64,62 @@ describe('Payment order creation', () => {
             .post('/api/payments/create-order')
             .set('Authorization', `Bearer ${customerToken}`)
             .send({
+                customer: {
+                    firstName: 'Payment',
+                    lastName: 'User',
+                    email: customerUser.email,
+                    phone: '9999999999',
+                    address: '123 Test Street',
+                    city: 'Mumbai',
+                    state: 'MH',
+                    zipCode: '400001',
+                },
                 cartItems: [{ productId: product._id.toString(), quantity: 1, price: 750 }],
-                totalAmount: 750,
+                pricing: {
+                    subtotal: 750,
+                    tax: 75,
+                    shipping: 0,
+                    total: 825,
+                },
                 currency: 'INR',
             });
 
         expect(res.status).toBe(201);
         expect(res.body).toMatchObject({
-            amount: 750,
+            amount: 82500,
             currency: 'INR',
             razorpayOrderId: 'order_test_razorpay_123',
             key: expect.any(String),
         });
+        const razorpayCreatePayload = (razorpay.orders.create as jest.Mock).mock.calls[0][0] as {
+            amount: number;
+            currency: string;
+            receipt: string;
+            payment_capture: boolean;
+        };
+
+        expect(razorpayCreatePayload).toEqual(
+            expect.objectContaining({
+                amount: 82500,
+                currency: 'INR',
+                receipt: expect.any(String),
+                payment_capture: true,
+            })
+        );
+        expect(razorpayCreatePayload.receipt.length).toBeLessThanOrEqual(40);
+
+        const savedOrder = await Order.findById(res.body.orderId);
+        expect(savedOrder).not.toBeNull();
+        expect(savedOrder?.customer.firstName).toBe('Payment');
+        expect(savedOrder?.customer.city).toBe('Mumbai');
+        expect(savedOrder?.totalAmount).toBe(825);
     });
 
     it('returns 400 when required fields are missing', async () => {
         const res = await request(app)
             .post('/api/payments/create-order')
             .set('Authorization', `Bearer ${customerToken}`)
-            .send({ totalAmount: 750, currency: 'INR' });
+            .send({ pricing: { subtotal: 750, tax: 75, shipping: 0, total: 825 }, currency: 'INR' });
 
         expect(res.status).toBe(400);
         expect(res.body.message).toBe('Validation failed');
@@ -110,13 +147,68 @@ describe('Payment order creation', () => {
             .post('/api/payments/create-order')
             .set('Authorization', `Bearer ${customerToken}`)
             .send({
+                customer: {
+                    firstName: 'Failure',
+                    lastName: 'User',
+                    email: customerUser.email,
+                    address: '123 Test Street',
+                    city: 'Delhi',
+                    zipCode: '110001',
+                },
                 cartItems: [{ productId: product._id.toString(), quantity: 1, price: 900 }],
-                totalAmount: 900,
+                pricing: {
+                    subtotal: 900,
+                    tax: 90,
+                    shipping: 0,
+                    total: 990,
+                },
                 currency: 'INR',
             });
 
         expect(res.status).toBe(500);
         expect(res.body.message).toBe('Failed to create Razorpay order');
+    });
+
+    it('returns 400 when subtotal and total do not match the cart pricing', async () => {
+        const product = await Product.create({
+            name: 'Mismatch Product',
+            category: 'Speakers',
+            price: 1000,
+            image: '/assets/mismatch.jpg',
+            description: 'A mismatch product',
+            brand: 'MismatchBrand',
+            condition: 'New',
+            skillLevel: 'Beginner',
+            inStock: true,
+            stockCount: 5,
+            specifications: [],
+            customerReviews: [],
+        });
+
+        const res = await request(app)
+            .post('/api/payments/create-order')
+            .set('Authorization', `Bearer ${customerToken}`)
+            .send({
+                customer: {
+                    firstName: 'Mismatch',
+                    lastName: 'User',
+                    email: customerUser.email,
+                    address: '123 Test Street',
+                    city: 'Pune',
+                    zipCode: '411001',
+                },
+                cartItems: [{ productId: product._id.toString(), quantity: 1, price: 1000 }],
+                pricing: {
+                    subtotal: 1000,
+                    tax: 99,
+                    shipping: 0,
+                    total: 1000,
+                },
+                currency: 'INR',
+            });
+
+        expect(res.status).toBe(400);
+        expect(res.body.message).toBe('Total amount mismatch');
     });
 });
 

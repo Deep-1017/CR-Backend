@@ -1,40 +1,57 @@
 import { Request, Response, NextFunction } from 'express';
-import AppError from '../utils/appError';
-import logger from '../utils/logger';
 
-export const notFound = (req: Request, res: Response, next: NextFunction) => {
-    next(new AppError(`Not found - ${req.originalUrl}`, 404));
-};
+export class AppError extends Error {
+  statusCode: number;
+  isOperational: boolean;
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export const errorHandler = (err: unknown, req: Request, res: Response, next: NextFunction) => {
-    let error = err;
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.statusCode = statusCode;
+    this.isOperational = true;
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
 
-    if (!(error instanceof AppError)) {
-        const message = error instanceof Error ? error.message : 'Internal server error';
-        error = new AppError(message, 500);
-    }
-
-    const appError = error as AppError;
-    const statusCode = appError.statusCode || 500;
-
-    logger.error('API error', {
-        message: appError.message,
-        statusCode,
-        stack: appError.stack,
-        path: req.originalUrl,
-        method: req.method,
+export const errorHandler = (
+  err: any,
+  _req: Request,
+  res: Response,
+  _next: NextFunction
+) => {
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyValue || {})[0];
+    return res.status(409).json({
+      success: false,
+      message: `An account with this ${field} already exists.`,
     });
+  }
 
-    if (process.env.NODE_ENV === 'production' && statusCode === 500) {
-        res.status(statusCode).json({ message: 'Internal server error' });
-        return;
-    }
-
-    res.status(statusCode).json({
-        message: appError.message,
-        details: appError.details,
-        stack: process.env.NODE_ENV === 'production' ? undefined : appError.stack,
+  if (err.name === 'ValidationError') {
+    const messages = Object.values(err.errors).map((e: any) => e.message);
+    return res.status(400).json({
+      success: false,
+      message: messages[0] || 'Validation error',
     });
+  }
+
+  if (err.name === 'JsonWebTokenError') {
+    return res.status(401).json({ success: false, message: 'Invalid token' });
+  }
+  if (err.name === 'TokenExpiredError') {
+    return res.status(401).json({ success: false, message: 'Session expired' });
+  }
+
+  if (err.isOperational) {
+    return res.status(err.statusCode).json({
+      success: false,
+      message: err.message,
+    });
+  }
+
+  console.error('[Unhandled Error]', err);
+  return res.status(500).json({
+    success: false,
+    message: 'An unexpected error occurred. Please try again later.',
+  });
 };
 
