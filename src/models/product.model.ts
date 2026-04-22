@@ -1,8 +1,19 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document, Model } from 'mongoose';
+
+export interface IProductVariant {
+    variantId: mongoose.Types.ObjectId;
+    configuration: string;
+    finish: string;
+    stock: number;
+    sku: string;
+    price?: number;
+    images?: string[];
+}
 
 export interface IProduct extends Document {
     name: string;
     category: string;
+    basePrice: number;
     price: number;
     originalPrice?: number;
     onSale?: boolean;
@@ -16,6 +27,9 @@ export interface IProduct extends Document {
     skillLevel: string;
     inStock: boolean;
     stockCount: number;
+    variants: IProductVariant[];
+    availableConfigurations: string[];
+    availableFinishes: string[];
     specifications: { label: string; value: string }[];
     customerReviews: {
         id: string;
@@ -26,7 +40,47 @@ export interface IProduct extends Document {
     }[];
 }
 
-const ProductSchema: Schema = new Schema({
+const VariantSchema = new Schema<IProductVariant>({
+    variantId: {
+        type: Schema.Types.ObjectId,
+        default: () => new mongoose.Types.ObjectId(),
+        immutable: true,
+    },
+    configuration: {
+        type: String,
+        required: true,
+        trim: true,
+    },
+    finish: {
+        type: String,
+        required: true,
+        trim: true,
+    },
+    stock: {
+        type: Number,
+        required: true,
+        default: 0,
+        min: 0,
+    },
+    sku: {
+        type: String,
+        required: true,
+        trim: true,
+        uppercase: true,
+    },
+    price: {
+        type: Number,
+        min: 0,
+    },
+    images: [{
+        type: String,
+        trim: true,
+    }],
+}, {
+    _id: false,
+});
+
+const ProductSchema: Schema<IProduct> = new Schema({
     name: { type: String, required: true },
     category: {
         type: String,
@@ -64,6 +118,7 @@ const ProductSchema: Schema = new Schema({
             'Speaker Stands',
         ]
     },
+    basePrice: { type: Number, required: true, min: 0 },
     price: { type: Number, required: true },
     originalPrice: { type: Number },
     onSale: { type: Boolean, default: false },
@@ -87,6 +142,20 @@ const ProductSchema: Schema = new Schema({
     },
     inStock: { type: Boolean, default: true },
     stockCount: { type: Number, default: 0 },
+    variants: {
+        type: [VariantSchema],
+        default: [],
+    },
+    availableConfigurations: {
+        type: [String],
+        default: [],
+        index: true,
+    },
+    availableFinishes: {
+        type: [String],
+        default: [],
+        index: true,
+    },
     specifications: [{
         label: { type: String, required: true },
         value: { type: String, required: true }
@@ -111,4 +180,47 @@ const ProductSchema: Schema = new Schema({
     }
 });
 
-export default mongoose.model<IProduct>('Product', ProductSchema);
+ProductSchema.index({ 'variants.sku': 1 }, { unique: true, sparse: true });
+
+ProductSchema.pre('validate', function syncProductDerivedFields(next) {
+    if (this.basePrice == null && this.price != null) {
+        this.basePrice = this.price;
+    }
+
+    if (this.price == null && this.basePrice != null) {
+        this.price = this.basePrice;
+    }
+
+    const variants = this.variants ?? [];
+    this.availableConfigurations = Array.from(
+        new Set(variants.map((variant) => variant.configuration).filter(Boolean))
+    );
+    this.availableFinishes = Array.from(
+        new Set(variants.map((variant) => variant.finish).filter(Boolean))
+    );
+
+    if (variants.length > 0) {
+        this.stockCount = variants.reduce((total, variant) => total + variant.stock, 0);
+        this.inStock = this.stockCount > 0;
+    }
+
+    const seenSkus = new Set<string>();
+    const duplicateSku = variants.find((variant) => {
+        const sku = variant.sku.toUpperCase();
+        if (seenSkus.has(sku)) {
+            return true;
+        }
+        seenSkus.add(sku);
+        return false;
+    });
+
+    if (duplicateSku) {
+        this.invalidate('variants', `Duplicate variant SKU: ${duplicateSku.sku}`);
+    }
+
+    next();
+});
+
+const Product: Model<IProduct> = mongoose.model<IProduct>('Product', ProductSchema);
+
+export default Product;

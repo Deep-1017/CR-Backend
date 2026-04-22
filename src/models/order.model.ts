@@ -15,9 +15,14 @@ export interface IOrder extends Document {
     };
     items: {
         productId: string;
+        variantId: string;
         name: string;
-        price: number;
+        configuration: string;
+        finish: string;
         quantity: number;
+        priceAtPurchase: number;
+        price: number;
+        sku: string;
         image: string;
     }[];
     totalAmount: number;
@@ -51,9 +56,14 @@ export const orderValidationSchema = z.object({
     }),
     items: z.array(z.object({
         productId: z.string().min(1, 'Product ID is required'),
+        variantId: z.string().min(1, 'Variant ID is required'),
         name: z.string().min(1, 'Product name is required'),
-        price: z.number().nonnegative('Price must be a positive number'),
+        configuration: z.string().min(1, 'Configuration is required'),
+        finish: z.string().min(1, 'Finish is required'),
         quantity: z.number().int().positive('Quantity must be a positive integer'),
+        priceAtPurchase: z.number().nonnegative('Price at purchase must be a positive number'),
+        price: z.number().nonnegative('Price must be a positive number'),
+        sku: z.string().min(1, 'SKU is required'),
         image: z.string().min(1, 'Product image is required'),
     })).min(1, 'At least one item is required'),
     totalAmount: z.number().nonnegative('Total amount must be a non-negative number'),
@@ -87,10 +97,15 @@ const OrderSchema: Schema = new Schema({
         zipCode: { type: String }
     },
     items: [{
-        productId: { type: String, required: true },
+        productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+        variantId: { type: Schema.Types.ObjectId, required: true },
         name: { type: String, required: true },
-        price: { type: Number, required: true },
+        configuration: { type: String, required: true },
+        finish: { type: String, required: true },
         quantity: { type: Number, required: true },
+        priceAtPurchase: { type: Number, required: true },
+        price: { type: Number, required: true },
+        sku: { type: String, required: true },
         image: { type: String, required: true }
     }],
     totalAmount: { type: Number, required: true },

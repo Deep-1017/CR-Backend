@@ -5,12 +5,12 @@ import { v4 as uuidv4 } from 'uuid';
 import razorpay from '../config/razorpay';
 import env from '../config/env';
 import Order from '../models/order.model';
-import Product from '../models/product.model';
 import Cart from '../models/cart.model';
 import asyncHandler from '../utils/asyncHandler';
 import AppError from '../utils/appError';
 import logger from '../utils/logger';
 import { CreatePaymentOrderInput, VerifyPaymentWebhookInput } from '../validation/paymentValidation';
+import { handleStockErrors, processOrderItems } from '../services/orderService';
 
 const buildRazorpayReceipt = (): string => {
     // Razorpay receipts must stay within 40 characters.
@@ -20,68 +20,69 @@ const buildRazorpayReceipt = (): string => {
 export const createRazorpayOrder = asyncHandler(async (req: Request, res: Response) => {
     const authUser = req.user as { id?: string; name?: string; email?: string } | undefined;
     const { customer, cartItems, pricing, currency } = req.body as CreatePaymentOrderInput;
+    const session = await mongoose.startSession();
 
-    const invalidProductIds = cartItems
-        .map((item) => item.productId)
-        .filter((id) => !mongoose.Types.ObjectId.isValid(id));
-
-    if (invalidProductIds.length > 0) {
-        throw new AppError(`Invalid product IDs: ${invalidProductIds.join(', ')}`, 400);
-    }
-
-    const products = await Product.find({ _id: { $in: cartItems.map((item) => item.productId) } });
-    const foundProductIds = products.map((product) => product._id.toString());
-    const missingProductIds = cartItems
-        .filter((item) => !foundProductIds.includes(item.productId))
-        .map((item) => item.productId);
-
-    if (missingProductIds.length > 0) {
-        throw new AppError(`Products not found: ${missingProductIds.join(', ')}`, 400);
-    }
-
-    const productMap = new Map(products.map((product) => [product._id.toString(), product]));
-
-    const items = cartItems.map((item) => {
-        const product = productMap.get(item.productId);
-        if (!product) {
-            throw new AppError(`Product ${item.productId} not found`, 400);
-        }
-
-        if (product.price !== item.price) {
-            throw new AppError(`Price mismatch for product ${item.productId}`, 400);
-        }
-
-        return {
-            productId: item.productId,
-            name: product.name,
-            price: item.price,
-            quantity: item.quantity,
-            image: product.image,
-        };
-    });
-
-    const computedSubtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const computedTax = Number(pricing.tax.toFixed(2));
-    const computedShipping = Number(pricing.shipping.toFixed(2));
-    const computedTotal = Number((computedSubtotal + computedTax + computedShipping).toFixed(2));
-
-    if (Number(pricing.subtotal.toFixed(2)) !== Number(computedSubtotal.toFixed(2))) {
-        throw new AppError('Subtotal amount mismatch', 400);
-    }
-
-    if (Number(pricing.total.toFixed(2)) !== computedTotal) {
-        throw new AppError('Total amount mismatch', 400);
-    }
-
-    let razorpayOrder: any;
     try {
-        razorpayOrder = await razorpay.orders.create({
-            amount: Math.round(computedTotal * 100),
-            currency,
-            receipt: buildRazorpayReceipt(),
-            payment_capture: true,
+        const paymentOrder = await handleStockErrors(session, async (activeSession) => {
+            const items = await processOrderItems(cartItems, activeSession);
+            const computedSubtotal = items.reduce(
+                (sum, item) => sum + item.priceAtPurchase * item.quantity,
+                0
+            );
+            const computedTax = Number(pricing.tax.toFixed(2));
+            const computedShipping = Number(pricing.shipping.toFixed(2));
+            const computedTotal = Number((computedSubtotal + computedTax + computedShipping).toFixed(2));
+
+            if (Number(pricing.subtotal.toFixed(2)) !== Number(computedSubtotal.toFixed(2))) {
+                throw new AppError('Subtotal amount mismatch', 400);
+            }
+
+            if (Number(pricing.total.toFixed(2)) !== computedTotal) {
+                throw new AppError('Total amount mismatch', 400);
+            }
+
+            const razorpayOrder = await razorpay.orders.create({
+                amount: Math.round(computedTotal * 100),
+                currency,
+                receipt: buildRazorpayReceipt(),
+            });
+
+            const [order] = await Order.create([{
+                userId: authUser?.id,
+                customer: {
+                    ...customer,
+                    email: authUser?.email ?? customer.email,
+                },
+                items,
+                totalAmount: computedTotal,
+                paymentId: razorpayOrder.id,
+                paymentStatus: 'pending',
+                paymentMethod: 'razorpay',
+                amountPaid: 0,
+                paymentDetails: {
+                    provider: 'razorpay',
+                    paymentIntentId: razorpayOrder.id,
+                    razorpayOrderId: razorpayOrder.id,
+                    status: 'pending',
+                },
+                status: 'Pending',
+            }], activeSession ? { session: activeSession } : undefined);
+
+            return {
+                orderId: order.id,
+                razorpayOrderId: razorpayOrder.id,
+                amount: razorpayOrder.amount,
+                currency,
+                key: env.RAZORPAY_KEY_ID,
+            };
         });
+
+        res.status(201).json(paymentOrder);
     } catch (error) {
+        if (error instanceof AppError) {
+            throw error;
+        }
+
         const razorpayError = error as {
             message?: string;
             error?: {
@@ -94,6 +95,14 @@ export const createRazorpayOrder = asyncHandler(async (req: Request, res: Respon
             };
             statusCode?: number;
         };
+        const providerMessage =
+            razorpayError.error?.description ||
+            razorpayError.error?.reason ||
+            razorpayError.message;
+        const publicMessage =
+            env.NODE_ENV === 'development' && providerMessage
+                ? `Failed to create Razorpay order: ${providerMessage}`
+                : 'Failed to create Razorpay order';
 
         logger.error('Razorpay order creation failed', {
             error: error instanceof Error ? error.message : error,
@@ -104,37 +113,10 @@ export const createRazorpayOrder = asyncHandler(async (req: Request, res: Respon
             currency,
             userId: authUser?.id,
         });
-        throw new AppError('Failed to create Razorpay order', 500);
+        throw new AppError(publicMessage, 500);
+    } finally {
+        await session.endSession();
     }
-
-    const order = await Order.create({
-        userId: authUser?.id,
-        customer: {
-            ...customer,
-            email: authUser?.email ?? customer.email,
-        },
-        items,
-        totalAmount: computedTotal,
-        paymentId: razorpayOrder.id,
-        paymentStatus: 'pending',
-        paymentMethod: 'razorpay',
-        amountPaid: 0,
-        paymentDetails: {
-            provider: 'razorpay',
-            paymentIntentId: razorpayOrder.id,
-            razorpayOrderId: razorpayOrder.id,
-            status: 'pending',
-        },
-        status: 'Pending',
-    });
-
-    res.status(201).json({
-        orderId: order.id,
-        razorpayOrderId: razorpayOrder.id,
-        amount: razorpayOrder.amount,
-        currency,
-        key: env.RAZORPAY_KEY_ID,
-    });
 });
 
 export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Response) => {

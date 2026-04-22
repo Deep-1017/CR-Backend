@@ -22,6 +22,9 @@ export const createPaymentOrderSchema = z.object({
   customer: customerSchema,
   cartItems: z.array(z.object({
     productId: z.string().min(1, 'Product ID is required'),
+    variantId: z.string().min(1, 'Variant selection is required before checkout'),
+    configuration: z.string().min(1, 'Configuration is required'),
+    finish: z.string().min(1, 'Finish is required'),
     quantity: z.number().int().positive('Quantity must be a positive integer'),
     price: z.number().nonnegative('Price must be a non-negative number'),
   })).min(1, 'Cart must contain at least one item'),

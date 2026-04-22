@@ -1,11 +1,40 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import Order from '../models/order.model';
 import asyncHandler from '../utils/asyncHandler';
 import AppError from '../utils/appError';
+import { handleStockErrors, processOrderItems } from '../services/orderService';
 
 export const addOrderItems = asyncHandler(async (req: Request, res: Response) => {
-    const order = await Order.create(req.body);
-    res.status(201).json(order);
+    const authUser = req.user as { id?: string } | undefined;
+    const session = await mongoose.startSession();
+
+    try {
+        const order = await handleStockErrors(session, async () => {
+            const items = await processOrderItems(req.body.items, session);
+            const computedTotal = items.reduce(
+                (total, item) => total + item.priceAtPurchase * item.quantity,
+                0
+            );
+
+            if (Number(req.body.totalAmount.toFixed(2)) !== Number(computedTotal.toFixed(2))) {
+                throw new AppError('Total amount mismatch', 400);
+            }
+
+            const [createdOrder] = await Order.create([{
+                ...req.body,
+                userId: req.body.userId ?? authUser?.id,
+                items,
+                totalAmount: computedTotal,
+            }], { session });
+
+            return createdOrder;
+        });
+
+        res.status(201).json(order);
+    } finally {
+        await session.endSession();
+    }
 });
 
 export const getOrders = asyncHandler(async (_req: Request, res: Response) => {

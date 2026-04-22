@@ -1,4 +1,11 @@
 import { z } from 'zod';
+export {
+    createProductSchema,
+    updateProductSchema,
+    productVariantSchema,
+    createProductVariantSchema,
+    updateProductVariantSchema,
+} from '../validation/productValidation';
 
 export const registerSchema = z.object({
     name: z.string().min(2).max(100),
@@ -10,24 +17,6 @@ export const loginSchema = z.object({
     email: z.string().email(),
     password: z.string().min(1),
 });
-
-export const createProductSchema = z.object({
-    name: z.string().min(1).max(200),
-    category: z.string().min(1),
-    price: z.number().positive(),
-    originalPrice: z.number().positive().optional(),
-    onSale: z.boolean().optional(),
-    image: z.string().url().or(z.string().startsWith('/')),
-    images: z.array(z.string()).optional().default([]),
-    description: z.string().min(1),
-    brand: z.string().min(1),
-    specifications: z.array(z.object({
-        label: z.string(),
-        value: z.string(),
-    })).optional().default([]),
-});
-
-export const updateProductSchema = createProductSchema.partial();
 
 export const addOrderSchema = z.object({
     customer: z.object({
@@ -42,10 +31,15 @@ export const addOrderSchema = z.object({
     }),
     items: z.array(z.object({
         productId: z.string().min(1),
-        name: z.string().min(1),
-        price: z.number().positive(),
+        variantId: z.string().min(1, 'Variant selection is required before checkout'),
+        configuration: z.string().min(1),
+        finish: z.string().min(1),
+        name: z.string().min(1).optional(),
+        price: z.number().positive().optional(),
+        priceAtPurchase: z.number().positive().optional(),
         quantity: z.number().int().positive(),
-        image: z.string(),
+        sku: z.string().optional(),
+        image: z.string().optional(),
     })).min(1, 'Order must contain at least one item'),
     totalAmount: z.number().positive(),
     paymentDetails: z.object({

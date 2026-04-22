@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, jest } from '@jes
 import crypto from 'crypto';
 import request from 'supertest';
 import mongoose from 'mongoose';
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import app from '../app';
 import Product from '../models/product.model';
 import Order from '../models/order.model';
@@ -12,13 +12,13 @@ import env from '../config/env';
 
 jest.setTimeout(30000);
 
-let mongoServer: MongoMemoryServer;
+let mongoServer: MongoMemoryReplSet;
 let customerToken: string;
 
 const customerUser = { name: 'Payment User', email: 'payuser@example.com', password: 'PayPass123' };
 
 beforeAll(async () => {
-    mongoServer = await MongoMemoryServer.create();
+    mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
     await mongoose.connect(mongoServer.getUri());
 
     const res = await request(app).post('/api/auth/register').send(customerUser);
@@ -42,6 +42,7 @@ describe('Payment order creation', () => {
         const product = await Product.create({
             name: 'Test Product',
             category: 'Speakers',
+            basePrice: 750,
             price: 750,
             image: '/assets/test.jpg',
             description: 'A test product',
@@ -50,9 +51,17 @@ describe('Payment order creation', () => {
             skillLevel: 'Beginner',
             inStock: true,
             stockCount: 10,
+            variants: [{
+                configuration: 'Right-Handed',
+                finish: 'Sunburst',
+                stock: 10,
+                sku: 'GTR-PAY-SUNBST-RH',
+                price: 750,
+            }],
             specifications: [],
             customerReviews: [],
         });
+        const variant = product.variants[0];
 
         jest.spyOn(razorpay.orders as any, 'create').mockResolvedValueOnce({
             id: 'order_test_razorpay_123',
@@ -74,7 +83,14 @@ describe('Payment order creation', () => {
                     state: 'MH',
                     zipCode: '400001',
                 },
-                cartItems: [{ productId: product._id.toString(), quantity: 1, price: 750 }],
+                cartItems: [{
+                    productId: product._id.toString(),
+                    variantId: variant.variantId.toString(),
+                    configuration: variant.configuration,
+                    finish: variant.finish,
+                    quantity: 1,
+                    price: 750,
+                }],
                 pricing: {
                     subtotal: 750,
                     tax: 75,
@@ -95,7 +111,6 @@ describe('Payment order creation', () => {
             amount: number;
             currency: string;
             receipt: string;
-            payment_capture: boolean;
         };
 
         expect(razorpayCreatePayload).toEqual(
@@ -103,7 +118,6 @@ describe('Payment order creation', () => {
                 amount: 82500,
                 currency: 'INR',
                 receipt: expect.any(String),
-                payment_capture: true,
             })
         );
         expect(razorpayCreatePayload.receipt.length).toBeLessThanOrEqual(40);
@@ -113,6 +127,10 @@ describe('Payment order creation', () => {
         expect(savedOrder?.customer.firstName).toBe('Payment');
         expect(savedOrder?.customer.city).toBe('Mumbai');
         expect(savedOrder?.totalAmount).toBe(825);
+        expect(savedOrder?.items[0].sku).toBe('GTR-PAY-SUNBST-RH');
+
+        const updatedProduct = await Product.findById(product.id);
+        expect(updatedProduct?.variants[0].stock).toBe(9);
     });
 
     it('returns 400 when required fields are missing', async () => {
@@ -129,6 +147,7 @@ describe('Payment order creation', () => {
         const product = await Product.create({
             name: 'Failure Product',
             category: 'Speakers',
+            basePrice: 900,
             price: 900,
             image: '/assets/fail.jpg',
             description: 'A failing product',
@@ -137,9 +156,17 @@ describe('Payment order creation', () => {
             skillLevel: 'Beginner',
             inStock: true,
             stockCount: 5,
+            variants: [{
+                configuration: 'Right-Handed',
+                finish: 'Natural',
+                stock: 5,
+                sku: 'GTR-FAIL-NAT-RH',
+                price: 900,
+            }],
             specifications: [],
             customerReviews: [],
         });
+        const variant = product.variants[0];
 
         jest.spyOn(razorpay.orders as any, 'create').mockRejectedValueOnce(new Error('Rate limit exceeded'));
 
@@ -155,7 +182,14 @@ describe('Payment order creation', () => {
                     city: 'Delhi',
                     zipCode: '110001',
                 },
-                cartItems: [{ productId: product._id.toString(), quantity: 1, price: 900 }],
+                cartItems: [{
+                    productId: product._id.toString(),
+                    variantId: variant.variantId.toString(),
+                    configuration: variant.configuration,
+                    finish: variant.finish,
+                    quantity: 1,
+                    price: 900,
+                }],
                 pricing: {
                     subtotal: 900,
                     tax: 90,
@@ -173,6 +207,7 @@ describe('Payment order creation', () => {
         const product = await Product.create({
             name: 'Mismatch Product',
             category: 'Speakers',
+            basePrice: 1000,
             price: 1000,
             image: '/assets/mismatch.jpg',
             description: 'A mismatch product',
@@ -181,9 +216,17 @@ describe('Payment order creation', () => {
             skillLevel: 'Beginner',
             inStock: true,
             stockCount: 5,
+            variants: [{
+                configuration: 'Right-Handed',
+                finish: 'Gloss Black',
+                stock: 5,
+                sku: 'GTR-MIS-GLBLK-RH',
+                price: 1000,
+            }],
             specifications: [],
             customerReviews: [],
         });
+        const variant = product.variants[0];
 
         const res = await request(app)
             .post('/api/payments/create-order')
@@ -197,7 +240,14 @@ describe('Payment order creation', () => {
                     city: 'Pune',
                     zipCode: '411001',
                 },
-                cartItems: [{ productId: product._id.toString(), quantity: 1, price: 1000 }],
+                cartItems: [{
+                    productId: product._id.toString(),
+                    variantId: variant.variantId.toString(),
+                    configuration: variant.configuration,
+                    finish: variant.finish,
+                    quantity: 1,
+                    price: 1000,
+                }],
                 pricing: {
                     subtotal: 1000,
                     tax: 99,
@@ -230,8 +280,13 @@ describe('Payment webhook verification', () => {
             items: [
                 {
                     productId: new mongoose.Types.ObjectId().toString(),
+                    variantId: new mongoose.Types.ObjectId().toString(),
                     name: 'Item',
+                    configuration: 'Right-Handed',
+                    finish: 'Sunburst',
                     price: 1200,
+                    priceAtPurchase: 1200,
+                    sku: 'GTR-WEBHOOK-SUNBST-RH',
                     quantity: 1,
                     image: '/img.jpg',
                 },

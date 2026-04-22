@@ -12,6 +12,9 @@ const envSchema = z.object({
   ALLOWED_ORIGINS: z.string().optional(),
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_SECRET: z.string().optional(),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  API_URL: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -29,4 +32,3 @@ export default {
   PORT: Number(env.PORT ?? 5000),
   isProduction: env.NODE_ENV === 'production',
 };
-
