@@ -3,12 +3,16 @@ import request from 'supertest';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import app from '../app';
+import Product from '../models/product.model';
 
 let mongoServer: MongoMemoryServer;
 let customerToken: string;
 let adminToken: string;
+let otherCustomerToken: string;
+let productId: string;
 
 const customerUser = { name: 'Customer', email: 'ordercust@example.com', password: 'CustPass123' };
+const otherCustomerUser = { name: 'Other Customer', email: 'other@example.com', password: 'OtherPass123' };
 const adminUser = { name: 'Admin', email: 'orderadmin@example.com', password: 'AdminPass123' };
 
 const validOrderBody = {
@@ -21,11 +25,11 @@ const validOrderBody = {
         zipCode: '10001',
     },
     items: [{
-        productId: 'prod-001',
-        name: 'Test Guitar',
-        price: 499,
+        productId: '', // will be set
+        variantId: '', // will be set
+        configuration: 'Standard',
+        finish: 'Natural',
         quantity: 1,
-        image: '/assets/test.jpg',
     }],
     totalAmount: 499,
     paymentDetails: {
@@ -38,9 +42,46 @@ beforeAll(async () => {
     mongoServer = await MongoMemoryServer.create();
     await mongoose.connect(mongoServer.getUri());
 
+    // Create a test product
+    const product = await Product.create({
+        name: 'Test Amplifier',
+        category: 'Amplifier',
+        basePrice: 499,
+        price: 499,
+        image: '/assets/test.jpg',
+        images: ['/assets/test.jpg'],
+        description: 'A test amplifier',
+        rating: 5,
+        reviews: 0,
+        brand: 'Test',
+        condition: 'New',
+        skillLevel: 'Beginner',
+        inStock: true,
+        stockCount: 10,
+        variants: [{
+            configuration: 'Standard',
+            finish: 'Natural',
+            stock: 10,
+            sku: 'TEST-001',
+            price: 499,
+            images: ['/assets/test.jpg']
+        }],
+        availableConfigurations: ['Standard'],
+        availableFinishes: ['Natural'],
+        specifications: [],
+        customerReviews: []
+    });
+    productId = product._id.toString();
+    validOrderBody.items[0].productId = productId;
+    validOrderBody.items[0].variantId = product.variants[0].variantId.toString();
+
     // Register customer
     const custRes = await request(app).post('/api/v1/auth/register').send(customerUser);
     customerToken = custRes.body.token;
+
+    // Register other customer
+    const otherCustRes = await request(app).post('/api/v1/auth/register').send(otherCustomerUser);
+    otherCustomerToken = otherCustRes.body.token;
 
     // Register and promote admin
     await request(app).post('/api/v1/auth/register').send(adminUser);
@@ -91,5 +132,56 @@ describe('Order Routes', () => {
             .set('Authorization', `Bearer ${adminToken}`);
         expect(res.status).toBe(200);
         expect(res.body).toHaveProperty('orders');
+    });
+
+    describe('GET /api/v1/orders/:id', () => {
+        let orderId: string;
+
+        beforeEach(async () => {
+            // Create an order with customerToken
+            const res = await request(app)
+                .post('/api/v1/orders')
+                .set('Authorization', `Bearer ${customerToken}`)
+                .send(validOrderBody);
+            orderId = res.body.id;
+        });
+
+        it('with valid ID and owner token → 200', async () => {
+            const res = await request(app)
+                .get(`/api/v1/orders/${orderId}`)
+                .set('Authorization', `Bearer ${customerToken}`);
+            expect(res.status).toBe(200);
+            expect(res.body.id).toBe(orderId);
+        });
+
+        it('with valid ID and admin token → 200', async () => {
+            const res = await request(app)
+                .get(`/api/v1/orders/${orderId}`)
+                .set('Authorization', `Bearer ${adminToken}`);
+            expect(res.status).toBe(200);
+            expect(res.body.id).toBe(orderId);
+        });
+
+        it('with valid ID and other customer token → 403', async () => {
+            const res = await request(app)
+                .get(`/api/v1/orders/${orderId}`)
+                .set('Authorization', `Bearer ${otherCustomerToken}`);
+            expect(res.status).toBe(403);
+        });
+
+        it('with invalid ID format → 400', async () => {
+            const res = await request(app)
+                .get('/api/v1/orders/invalid-id')
+                .set('Authorization', `Bearer ${customerToken}`);
+            expect(res.status).toBe(400);
+        });
+
+        it('with non-existent ID → 404', async () => {
+            const fakeId = new mongoose.Types.ObjectId().toString();
+            const res = await request(app)
+                .get(`/api/v1/orders/${fakeId}`)
+                .set('Authorization', `Bearer ${customerToken}`);
+            expect(res.status).toBe(404);
+        });
     });
 });

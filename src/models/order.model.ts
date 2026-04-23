@@ -38,6 +38,8 @@ export interface IOrder extends Document {
         status: 'pending' | 'paid' | 'failed' | 'refunded';
     };
     status: 'Pending' | 'Processing' | 'Confirmed' | 'Completed' | 'Cancelled';
+    confirmationEmailSentAt?: Date;
+    confirmationEmailError?: string;
     createdAt?: Date;
     updatedAt?: Date;
 }
@@ -78,6 +80,8 @@ export const orderValidationSchema = z.object({
         status: z.enum(['pending', 'paid', 'failed', 'refunded']).default('pending'),
     }),
     status: z.enum(['Pending', 'Processing', 'Confirmed', 'Completed', 'Cancelled']).default('Pending'),
+    confirmationEmailSentAt: z.date().optional(),
+    confirmationEmailError: z.string().optional(),
     createdAt: z.date().optional(),
     updatedAt: z.date().optional(),
 });
@@ -136,7 +140,9 @@ const OrderSchema: Schema = new Schema({
         type: String,
         enum: ['Pending', 'Processing', 'Confirmed', 'Completed', 'Cancelled'],
         default: 'Pending'
-    }
+    },
+    confirmationEmailSentAt: { type: Date },
+    confirmationEmailError: { type: String }
 }, {
     timestamps: true,
     toJSON: {

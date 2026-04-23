@@ -1,7 +1,7 @@
 import express from 'express';
 import { protect } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validate';
-import { createRazorpayOrder, verifyRazorpayWebhook } from '../controllers/payment.controller';
+import { createRazorpayOrder, resendOrderConfirmationEmail, verifyRazorpayWebhook } from '../controllers/payment.controller';
 import { createPaymentOrderSchema, verifyPaymentWebhookSchema } from '../validation/paymentValidation';
 
 const router = express.Router();
@@ -65,5 +65,6 @@ const router = express.Router();
  */
 router.post('/create-order', protect, validate(createPaymentOrderSchema), createRazorpayOrder);
 router.post('/verify-webhook', validate(verifyPaymentWebhookSchema), verifyRazorpayWebhook);
+router.post('/:orderId/resend-confirmation', protect, resendOrderConfirmationEmail);
 
 export default router;

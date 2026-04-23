@@ -21,7 +21,7 @@ beforeAll(async () => {
     mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
     await mongoose.connect(mongoServer.getUri());
 
-    const res = await request(app).post('/api/auth/register').send(customerUser);
+    const res = await request(app).post('/api/v1/auth/register').send(customerUser);
     customerToken = res.body.token;
 });
 
@@ -70,7 +70,7 @@ describe('Payment order creation', () => {
         });
 
         const res = await request(app)
-            .post('/api/payments/create-order')
+            .post('/api/v1/payments/create-order')
             .set('Authorization', `Bearer ${customerToken}`)
             .send({
                 customer: {
@@ -135,7 +135,7 @@ describe('Payment order creation', () => {
 
     it('returns 400 when required fields are missing', async () => {
         const res = await request(app)
-            .post('/api/payments/create-order')
+            .post('/api/v1/payments/create-order')
             .set('Authorization', `Bearer ${customerToken}`)
             .send({ pricing: { subtotal: 750, tax: 75, shipping: 0, total: 825 }, currency: 'INR' });
 
@@ -171,7 +171,7 @@ describe('Payment order creation', () => {
         jest.spyOn(razorpay.orders as any, 'create').mockRejectedValueOnce(new Error('Rate limit exceeded'));
 
         const res = await request(app)
-            .post('/api/payments/create-order')
+            .post('/api/v1/payments/create-order')
             .set('Authorization', `Bearer ${customerToken}`)
             .send({
                 customer: {
@@ -229,7 +229,7 @@ describe('Payment order creation', () => {
         const variant = product.variants[0];
 
         const res = await request(app)
-            .post('/api/payments/create-order')
+            .post('/api/v1/payments/create-order')
             .set('Authorization', `Bearer ${customerToken}`)
             .send({
                 customer: {
@@ -326,11 +326,12 @@ describe('Payment webhook verification', () => {
             .digest('hex');
 
         const res = await request(app)
-            .post('/api/payments/verify-webhook')
+            .post('/api/v1/payments/verify-webhook')
             .send({ razorpay_order_id, razorpay_payment_id, razorpay_signature });
 
         expect(res.status).toBe(200);
         expect(res.body.message).toBe('Payment verified and order confirmed');
+        expect(res.body.orderId).toBeDefined();
 
         const updatedOrder = await Order.findOne({ paymentId: razorpay_order_id });
         expect(updatedOrder).not.toBeNull();
@@ -346,7 +347,7 @@ describe('Payment webhook verification', () => {
     });
 
     it('rejects tampered signature', async () => {
-        const res = await request(app).post('/api/payments/verify-webhook').send({
+        const res = await request(app).post('/api/v1/payments/verify-webhook').send({
             razorpay_order_id: 'order_webhook_invalid',
             razorpay_payment_id: 'pay_webhook_invalid',
             razorpay_signature: 'invalid_signature',
@@ -364,7 +365,7 @@ describe('Payment webhook verification', () => {
             .update(`${razorpay_order_id}|${razorpay_payment_id}`)
             .digest('hex');
 
-        const res = await request(app).post('/api/payments/verify-webhook').send({
+        const res = await request(app).post('/api/v1/payments/verify-webhook').send({
             razorpay_order_id,
             razorpay_payment_id,
             razorpay_signature,

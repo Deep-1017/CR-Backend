@@ -48,13 +48,19 @@ export const getOrders = asyncHandler(async (_req: Request, res: Response) => {
 });
 
 export const getOrderById = asyncHandler(async (req: Request, res: Response) => {
-    const order = await Order.findById(req.params.id);
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+        throw new AppError('Invalid order ID format', 400);
+    }
+
+    const order = await Order.findById(req.params.id).populate('items.productId', 'name image');
     if (!order) throw new AppError('Order not found', 404);
-    // Ownership check — allow admin or the order's own customer email
-    const user = req.user as { role?: string; email?: string } | undefined;
-    if (user?.role !== 'admin' && order.customer.email !== user?.email) {
+
+    // Ownership check — allow admin or the order's owner
+    const user = req.user as { id?: string; role?: string } | undefined;
+    if (user?.role !== 'admin' && order.userId !== user?.id) {
         throw new AppError('Not authorised to view this order', 403);
     }
+
     res.json(order);
 });
 

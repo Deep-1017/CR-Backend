@@ -11,10 +11,38 @@ import AppError from '../utils/appError';
 import logger from '../utils/logger';
 import { CreatePaymentOrderInput, VerifyPaymentWebhookInput } from '../validation/paymentValidation';
 import { handleStockErrors, processOrderItems } from '../services/orderService';
+import { isEmailConfigured, logEmailConfigurationWarning } from '../services/email.service';
+import { sendOrderConfirmationEmail } from '../services/orderEmail.service';
 
 const buildRazorpayReceipt = (): string => {
     // Razorpay receipts must stay within 40 characters.
     return `rcpt_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
+};
+
+const deliverOrderConfirmationEmail = async (order: InstanceType<typeof Order>): Promise<void> => {
+    if (!isEmailConfigured()) {
+        order.confirmationEmailError = 'Email delivery is not configured on the server.';
+        order.confirmationEmailSentAt = undefined;
+        await order.save();
+        logEmailConfigurationWarning();
+        return;
+    }
+
+    try {
+        await sendOrderConfirmationEmail(order);
+        order.confirmationEmailSentAt = new Date();
+        order.confirmationEmailError = undefined;
+        await order.save();
+    } catch (error) {
+        order.confirmationEmailSentAt = undefined;
+        order.confirmationEmailError = error instanceof Error ? error.message : 'Email delivery failed.';
+        await order.save();
+        logger.error('Order confirmation email failed', {
+            error: error instanceof Error ? error.message : error,
+            orderId: order.id,
+            email: order.customer.email,
+        });
+    }
 };
 
 export const createRazorpayOrder = asyncHandler(async (req: Request, res: Response) => {
@@ -190,7 +218,12 @@ export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Resp
             requestId,
         });
 
-        res.status(200).json({ message: 'Payment verified and order confirmed' });
+        await deliverOrderConfirmationEmail(order);
+
+        res.status(200).json({ 
+            message: 'Payment verified and order confirmed',
+            orderId: order.id 
+        });
     } catch (error) {
         await Order.updateOne(
             { _id: order._id },
@@ -214,4 +247,34 @@ export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Resp
         });
         throw new AppError('Failed to verify payment webhook', 500);
     }
+});
+
+export const resendOrderConfirmationEmail = asyncHandler(async (req: Request, res: Response) => {
+    const order = await Order.findById(req.params.orderId);
+    if (!order) {
+        throw new AppError('Order not found', 404);
+    }
+
+    const user = req.user as { role?: string; email?: string } | undefined;
+    if (user?.role !== 'admin' && order.customer.email !== user?.email) {
+        throw new AppError('Not authorised to resend this confirmation email', 403);
+    }
+
+    if (order.paymentStatus !== 'success') {
+        throw new AppError('Confirmation email can only be resent for paid orders', 400);
+    }
+
+    await deliverOrderConfirmationEmail(order);
+
+    if (!order.confirmationEmailSentAt) {
+        res.status(503).json({
+            message: order.confirmationEmailError ?? 'Unable to send confirmation email right now.',
+        });
+        return;
+    }
+
+    res.status(200).json({
+        message: `Confirmation email sent to ${order.customer.email}.`,
+        confirmationEmailSentAt: order.confirmationEmailSentAt,
+    });
 });
