@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Order Confirmation</title>
+    <style>
+      @media (max-width: 600px) {
+        body { padding: 0 !important; }
+        .email-container { padding: 16px !important; }
+        .email-content { padding: 16px !important; max-width: 100% !important; }
+        h1 { font-size: 24px !important; }
+        h2 { font-size: 13px !important; }
+        .order-info-row { display: block !important; }
+        .order-info-cell { display: block !important; padding: 8px 0 !important; text-align: left !important; }
+        .order-info-cell:first-child { border-bottom: 1px solid #ecfdf5; padding-bottom: 12px; }
+        .items-table { font-size: 13px !important; }
+        .items-table th, .items-table td { padding: 10px 8px !important; font-size: 12px !important; }
+        .table-label { display: block; font-size: 10px; color: #78716c; margin-bottom: 4px; }
+        .qty-col { display: none !important; }
+        .price-col { text-align: right !important; }
+        .cta-button { width: 100% !important; text-align: center !important; box-sizing: border-box !important; }
+        .shipping-address { padding: 12px !important; font-size: 13px !important; line-height: 1.5 !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0;padding:0;background:#f8f7f2;font-family:Arial,sans-serif;color:#1c1917;">
+    <div style="padding:32px 16px;" class="email-container">
+      <div style="max-width:680px;margin:0 auto;background:#ffffff;border-radius:20px;padding:28px;border:1px solid #e7e5e4;" class="email-content">
+        <p style="margin:0 0 8px;color:#059669;font-size:12px;letter-spacing:0.24em;text-transform:uppercase;">CR Music</p>
+        <h1 style="margin:0 0 12px;font-size:28px;line-height:1.2;">Order Confirmed</h1>
+        <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#57534e;">
+          Hi {{customerName}}, your payment was successful and we're processing your order now.
+        </p>
+
+        <div style="background:#ecfdf5;border:1px solid #bbf7d0;border-radius:16px;padding:14px 16px;margin:0 0 18px;">
+          <table style="width:100%;border-collapse:collapse;">
+            <tr class="order-info-row">
+              <td style="padding:0;" class="order-info-cell">
+                <p style="margin:0 0 6px;font-size:12px;letter-spacing:0.18em;text-transform:uppercase;color:#047857;">Order Number</p>
+                <p style="margin:0;font-size:20px;font-weight:700;color:#064e3b;">{{orderNumber}}</p>
+              </td>
+              <td style="padding:0;text-align:right;" class="order-info-cell">
+                <p style="margin:0 0 6px;font-size:12px;letter-spacing:0.18em;text-transform:uppercase;color:#047857;">Order Date</p>
+                <p style="margin:0;font-size:14px;font-weight:700;color:#064e3b;">{{orderDate}}</p>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <div style="margin:0 0 18px;">
+          <h2 style="margin:0 0 10px;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;color:#78716c;">Items</h2>
+          <div style="border:1px solid #e7e5e4;border-radius:16px;overflow:hidden;">
+            <table style="width:100%;border-collapse:collapse;" class="items-table">
+              <thead>
+                <tr style="background:#fafaf9;">
+                  <th style="text-align:left;padding:12px 14px;color:#78716c;font-size:12px;text-transform:uppercase;letter-spacing:0.12em;">Item</th>
+                  <th style="text-align:left;padding:12px 14px;color:#78716c;font-size:12px;text-transform:uppercase;letter-spacing:0.12em;">Details</th>
+                  <th style="text-align:center;padding:12px 14px;color:#78716c;font-size:12px;text-transform:uppercase;letter-spacing:0.12em;" class="qty-col">Qty</th>
+                  <th style="text-align:right;padding:12px 14px;color:#78716c;font-size:12px;text-transform:uppercase;letter-spacing:0.12em;" class="price-col">Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{items}}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div style="border-top:1px solid #e7e5e4;padding-top:14px;margin:0 0 18px;">
+          <table style="width:100%;border-collapse:collapse;">
+            <tr>
+              <td style="padding:6px 0;color:#57534e;">Subtotal</td>
+              <td style="padding:6px 0;text-align:right;color:#44403c;font-weight:700;">{{subtotal}}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#57534e;">Shipping</td>
+              <td style="padding:6px 0;text-align:right;color:#44403c;font-weight:700;">{{shippingCost}}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#57534e;">Tax</td>
+              <td style="padding:6px 0;text-align:right;color:#44403c;font-weight:700;">{{tax}}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 0;font-size:15px;color:#1c1917;font-weight:700;">Total</td>
+              <td style="padding:10px 0;text-align:right;font-size:20px;color:#047857;font-weight:800;">{{totalAmount}}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div style="margin:0 0 18px;">
+          <h2 style="margin:0 0 10px;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;color:#78716c;">Shipping Address</h2>
+          <div style="border:1px solid #e7e5e4;border-radius:16px;padding:14px 16px;" class="shipping-address">
+            <p style="margin:0;font-size:14px;line-height:1.6;color:#44403c;">{{shippingAddress}}</p>
+            <p style="margin:10px 0 0;font-size:13px;line-height:1.6;color:#57534e;">
+              Expected delivery date: <strong style="color:#1c1917;">{{estimatedDeliveryDate}}</strong>
+            </p>
+          </div>
+        </div>
+
+        <p style="margin:0 0 18px;font-size:13px;line-height:1.6;color:#57534e;">
+          We'll email you again when your order ships. You can also review this order anytime from your account.
+        </p>
+
+        <a href="{{orderUrl}}" style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:999px;font-weight:700;" class="cta-button">
+          View Order
+        </a>
+      </div>
+      <p style="max-width:680px;margin:14px auto 0;color:#a8a29e;font-size:12px;line-height:1.6;">
+        Need help? Reply to this email or contact support. If you didn’t place this order, you can ignore this email.
+      </p>
+    </div>
+  </body>
+</html>

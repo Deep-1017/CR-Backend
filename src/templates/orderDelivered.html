@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Order Delivered</title>
+    <style>
+      @media (max-width: 600px) {
+        body { padding: 0 !important; }
+        .email-container { padding: 16px !important; }
+        .email-content { padding: 16px !important; max-width: 100% !important; }
+        h1 { font-size: 24px !important; }
+        h2 { font-size: 13px !important; }
+        .summary-box { padding: 12px !important; font-size: 13px !important; }
+        .items-table { font-size: 13px !important; }
+        .items-table th, .items-table td { padding: 10px 8px !important; font-size: 12px !important; }
+        .qty-col { display: none !important; }
+        .cta-button { display: block !important; width: 100% !important; text-align: center !important; box-sizing: border-box !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0;padding:0;background:#f8f7f2;font-family:Arial,sans-serif;color:#1c1917;">
+    <div style="padding:32px 16px;" class="email-container">
+      <div style="max-width:680px;margin:0 auto;background:#ffffff;border-radius:20px;padding:28px;border:1px solid #e7e5e4;" class="email-content">
+        <p style="margin:0 0 8px;color:#16a34a;font-size:12px;letter-spacing:0.24em;text-transform:uppercase;">CR Music</p>
+        <h1 style="margin:0 0 12px;font-size:28px;line-height:1.2;">Delivered</h1>
+        <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#57534e;">
+          Hi {{customerName}}, your order <strong>{{orderNumber}}</strong> has been delivered.
+        </p>
+
+        <div style="background:#ecfdf5;border:1px solid #bbf7d0;border-radius:16px;padding:14px 16px;margin:0 0 18px;">
+          <p style="margin:0;font-size:14px;color:#064e3b;">
+            We hope you love it. If anything is wrong, reply to this email and we’ll help.
+          </p>
+          <p style="margin:10px 0 0;font-size:13px;line-height:1.6;color:#065f46;">
+            Your order was delivered on <strong style="color:#064e3b;">{{deliveryDate}}</strong>.
+          </p>
+        </div>
+
+        <div style="border:1px solid #e7e5e4;border-radius:16px;padding:14px 16px;margin:0 0 18px;" class="summary-box">
+          <h2 style="margin:0 0 10px;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;color:#78716c;">Order Summary</h2>
+          <table style="width:100%;border-collapse:collapse;">
+            <tr>
+              <td style="padding:6px 0;color:#57534e;">Items</td>
+              <td style="padding:6px 0;text-align:right;color:#1c1917;font-weight:700;">{{itemsCount}}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#57534e;">Total</td>
+              <td style="padding:6px 0;text-align:right;color:#16a34a;font-weight:800;">{{totalAmount}}</td>
+            </tr>
+          </table>
+        </div>
+
+        <h2 style="margin:0 0 10px;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;color:#78716c;">Items</h2>
+        <div style="border:1px solid #e7e5e4;border-radius:16px;overflow:hidden;margin:0 0 18px;">
+          <table style="width:100%;border-collapse:collapse;" class="items-table">
+            <thead>
+              <tr style="background:#fafaf9;">
+                <th style="text-align:left;padding:12px 14px;color:#78716c;font-size:12px;text-transform:uppercase;letter-spacing:0.12em;">Item</th>
+                <th style="text-align:left;padding:12px 14px;color:#78716c;font-size:12px;text-transform:uppercase;letter-spacing:0.12em;">Details</th>
+                <th style="text-align:center;padding:12px 14px;color:#78716c;font-size:12px;text-transform:uppercase;letter-spacing:0.12em;" class="qty-col">Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{items}}
+            </tbody>
+          </table>
+        </div>
+
+        <a href="{{orderUrl}}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:999px;font-weight:700;" class="cta-button">
+          View Order Details
+        </a>
+
+        <p style="margin:14px 0 0;font-size:13px;line-height:1.6;color:#57534e;">
+          <a href="{{feedbackUrl}}" style="color:#16a34a;text-decoration:none;font-weight:700;">How was your experience?</a>
+        </p>
+      </div>
+    </div>
+  </body>
+</html>

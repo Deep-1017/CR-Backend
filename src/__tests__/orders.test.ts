@@ -6,6 +6,7 @@ import {
   describe,
   expect,
   it,
+  jest,
 } from "@jest/globals";
 import request from "supertest";
 import mongoose from "mongoose";
@@ -13,6 +14,7 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import app from "../app";
 import Product from "../models/product.model";
 import Order from "../models/order.model";
+import * as emailService from "../services/emailService";
 
 let mongoServer: MongoMemoryServer;
 let customerToken: string;
@@ -133,6 +135,7 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
+  jest.restoreAllMocks();
   await mongoose.connection.collection("orders").deleteMany({});
   // Restore stock
   await mongoose.connection
@@ -537,5 +540,42 @@ describe("GET /api/v1/orders/admin/all", () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("orders");
     expect(res.body).toHaveProperty("total");
+  });
+});
+
+describe("POST /api/admin/orders/:orderId/send-shipped-email", () => {
+  it("sends email with valid tracking info", async () => {
+    const emailSpy = jest
+      .spyOn(emailService, "sendOrderShippedEmail")
+      .mockResolvedValue({ ok: true });
+    const orderRes = await createOrder(customerToken);
+
+    const res = await request(app)
+      .post(`/api/admin/orders/${orderRes.body.id}/send-shipped-email`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        trackingNumber: "TRK123456",
+        carrierName: "Blue Dart",
+        estimatedDeliveryDate: "2026-05-01",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      message: "Shipping notification email sent to ordercust@example.com",
+    });
+    expect(emailSpy).toHaveBeenCalledTimes(1);
+    expect(emailSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "ordercust@example.com",
+        name: "Customer",
+      }),
+      expect.objectContaining({ status: "Shipped" }),
+      {
+        trackingNumber: "TRK123456",
+        carrierName: "Blue Dart",
+        estimatedDeliveryDate: "2026-05-01",
+      },
+    );
   });
 });

@@ -50,7 +50,7 @@ export const addOrderSchema = z.object({
       .default("pending"),
   }),
   status: z
-    .enum(["Pending", "Processing", "Confirmed", "Completed", "Cancelled"])
+    .enum(["Pending", "Processing", "Confirmed", "Shipped", "Completed", "Cancelled"])
     .default("Pending"),
 });
 
@@ -59,6 +59,7 @@ export const updateOrderStatusSchema = z.object({
     "Pending",
     "Processing",
     "Confirmed",
+    "Shipped",
     "Completed",
     "Cancelled",
   ]),
@@ -91,6 +92,7 @@ export const getMyOrdersQuerySchema = z.object({
       "Pending",
       "Processing",
       "Confirmed",
+      "Shipped",
       "Completed",
       "Cancelled",
     ])

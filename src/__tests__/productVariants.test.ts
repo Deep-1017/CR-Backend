@@ -70,7 +70,7 @@ describe('Product variant endpoints', () => {
             ],
         });
 
-        const res = await request(app).get(`/api/products/${product.id}/variants`);
+        const res = await request(app).get(`/api/v1/products/${product.id}/variants`);
 
         expect(res.status).toBe(200);
         expect(res.body.totalStock).toBe(3);
@@ -104,18 +104,18 @@ describe('Product variant endpoints', () => {
         };
 
         const unauthenticated = await request(app)
-            .post(`/api/products/${product.id}/variants`)
+            .post(`/api/v1/products/${product.id}/variants`)
             .send(variantBody);
         expect(unauthenticated.status).toBe(401);
 
         const forbidden = await request(app)
-            .post(`/api/products/${product.id}/variants`)
+            .post(`/api/v1/products/${product.id}/variants`)
             .set('Authorization', `Bearer ${customerToken}`)
             .send(variantBody);
         expect(forbidden.status).toBe(403);
 
         const res = await request(app)
-            .post(`/api/products/${product.id}/variants`)
+            .post(`/api/v1/products/${product.id}/variants`)
             .set('Authorization', `Bearer ${adminToken}`)
             .send(variantBody);
 
@@ -141,7 +141,7 @@ describe('Product variant endpoints', () => {
         const product = await createProduct({ name: 'Target Product' });
 
         const res = await request(app)
-            .post(`/api/products/${product.id}/variants`)
+            .post(`/api/v1/products/${product.id}/variants`)
             .set('Authorization', `Bearer ${adminToken}`)
             .send({
                 configuration: 'Left-Handed',
@@ -174,7 +174,7 @@ describe('Product variant endpoints', () => {
         const variantId = product.variants[0].variantId.toString();
 
         const res = await request(app)
-            .patch(`/api/products/${product.id}/variants/${variantId}`)
+            .patch(`/api/v1/products/${product.id}/variants/${variantId}`)
             .set('Authorization', `Bearer ${adminToken}`)
             .send({
                 finish: 'Gloss Black',
@@ -220,13 +220,13 @@ describe('Product variant endpoints', () => {
         const variantId = product.variants[0].variantId.toString();
 
         const sameSkuRes = await request(app)
-            .patch(`/api/products/${product.id}/variants/${variantId}`)
+            .patch(`/api/v1/products/${product.id}/variants/${variantId}`)
             .set('Authorization', `Bearer ${adminToken}`)
             .send({ sku: 'GTR-005-NAT-LH', stock: 3 });
         expect(sameSkuRes.status).toBe(200);
 
         const conflictRes = await request(app)
-            .patch(`/api/products/${product.id}/variants/${variantId}`)
+            .patch(`/api/v1/products/${product.id}/variants/${variantId}`)
             .set('Authorization', `Bearer ${adminToken}`)
             .send({ sku: 'GTR-005-CHRRED-RH' });
         expect(conflictRes.status).toBe(409);
@@ -238,14 +238,14 @@ describe('Product variant endpoints', () => {
         const missingVariantId = new mongoose.Types.ObjectId().toString();
 
         const patchRes = await request(app)
-            .patch(`/api/products/${product.id}/variants/${missingVariantId}`)
+            .patch(`/api/v1/products/${product.id}/variants/${missingVariantId}`)
             .set('Authorization', `Bearer ${adminToken}`)
             .send({ stock: 1 });
         expect(patchRes.status).toBe(404);
         expect(patchRes.body.message).toBe('Variant not found');
 
         const deleteRes = await request(app)
-            .delete(`/api/products/${product.id}/variants/${missingVariantId}`)
+            .delete(`/api/v1/products/${product.id}/variants/${missingVariantId}`)
             .set('Authorization', `Bearer ${adminToken}`);
         expect(deleteRes.status).toBe(404);
         expect(deleteRes.body.message).toBe('Variant not found');
@@ -271,7 +271,7 @@ describe('Product variant endpoints', () => {
         const variantId = product.variants[0].variantId.toString();
 
         const res = await request(app)
-            .delete(`/api/products/${product.id}/variants/${variantId}`)
+            .delete(`/api/v1/products/${product.id}/variants/${variantId}`)
             .set('Authorization', `Bearer ${adminToken}`);
 
         expect(res.status).toBe(200);

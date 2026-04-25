@@ -40,7 +40,8 @@ describe('Auth Routes', () => {
     it('POST /api/v1/auth/register with duplicate email → 400', async () => {
         await request(app).post('/api/v1/auth/register').send(validUser);
         const res = await request(app).post('/api/v1/auth/register').send(validUser);
-        expect(res.status).toBe(400);
+        // Duplicate email is a conflict (unique index)
+        expect(res.status).toBe(409);
     });
 
     it('POST /api/v1/auth/login with correct credentials → 200 with token', async () => {
@@ -60,18 +61,18 @@ describe('Auth Routes', () => {
         expect(res.status).toBe(401);
     });
 
-    it('GET /api/v1/auth/me without token → 401', async () => {
-        const res = await request(app).get('/api/v1/auth/me');
+    it('GET /api/v1/auth/profile without token → 401', async () => {
+        const res = await request(app).get('/api/v1/auth/profile');
         expect(res.status).toBe(401);
     });
 
-    it('GET /api/v1/auth/me with valid token → 200', async () => {
+    it('GET /api/v1/auth/profile with valid token → 200', async () => {
         const regRes = await request(app).post('/api/v1/auth/register').send(validUser);
         const token = regRes.body.token;
         const res = await request(app)
-            .get('/api/v1/auth/me')
+            .get('/api/v1/auth/profile')
             .set('Authorization', `Bearer ${token}`);
         expect(res.status).toBe(200);
-        expect(res.body.email).toBe(validUser.email);
+        expect(res.body.user.email).toBe(validUser.email);
     });
 });

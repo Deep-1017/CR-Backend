@@ -90,7 +90,7 @@ describe('Variant-aware order creation', () => {
         const variantId = product.variants[0].variantId.toString();
 
         const res = await request(app)
-            .post('/api/orders')
+            .post('/api/v1/orders')
             .set('Authorization', `Bearer ${customerToken}`)
             .send(buildOrderBody(product.id, variantId));
 
@@ -127,7 +127,7 @@ describe('Variant-aware order creation', () => {
         const variantId = product.variants[0].variantId.toString();
 
         const res = await request(app)
-            .post('/api/orders')
+            .post('/api/v1/orders')
             .set('Authorization', `Bearer ${customerToken}`)
             .send(buildOrderBody(product.id, variantId, {
                 items: [{
@@ -171,7 +171,7 @@ describe('Variant-aware order creation', () => {
         });
 
         const res = await request(app)
-            .post('/api/orders')
+            .post('/api/v1/orders')
             .set('Authorization', `Bearer ${customerToken}`)
             .send(buildOrderBody(
                 firstProduct.id,
@@ -218,7 +218,7 @@ describe('Variant-aware order creation', () => {
         });
 
         const res = await request(app)
-            .post('/api/orders')
+            .post('/api/v1/orders')
             .set('Authorization', `Bearer ${customerToken}`)
             .send({
                 ...buildOrderBody(product.id, product.variants[0].variantId.toString()),
@@ -247,7 +247,7 @@ describe('Variant-aware order creation', () => {
         const variantId = product.variants[0].variantId.toString();
 
         const res = await request(app)
-            .post('/api/orders')
+            .post('/api/v1/orders')
             .set('Authorization', `Bearer ${customerToken}`)
             .send(buildOrderBody(product.id, variantId, {
                 items: [{

@@ -1,9 +1,12 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import Order from "../models/order.model";
+import User from "../models/User";
 import asyncHandler from "../utils/asyncHandler";
 import AppError from "../utils/appError";
+import logger from "../utils/logger";
 import { handleStockErrors, processOrderItems } from "../services/orderService";
+import * as emailService from "../services/emailService";
 import { GetMyOrdersQuery } from "../schemas/order.schema";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -277,6 +280,81 @@ export const updateOrderStatus = asyncHandler(
     );
     if (!order) throw new AppError("Order not found", 404);
     res.json(order);
+  },
+);
+
+export const sendShippedEmail = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { orderId } = req.params;
+    const { trackingNumber, carrierName, estimatedDeliveryDate } = req.body as {
+      trackingNumber?: string;
+      carrierName?: string;
+      estimatedDeliveryDate?: string;
+    };
+
+    if (!trackingNumber?.trim() || !carrierName?.trim() || !estimatedDeliveryDate?.trim()) {
+      throw new AppError("Missing tracking info", 400);
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      throw new AppError("Order not found", 404);
+    }
+
+    const order = await Order.findById(orderId).populate(
+      "items.productId",
+      "name image",
+    );
+
+    if (!order) {
+      throw new AppError("Order not found", 404);
+    }
+
+    if (order.status === "Cancelled") {
+      throw new AppError("Order status does not allow shipping notification", 400);
+    }
+
+    if (order.status !== "Shipped") {
+      order.status = "Shipped";
+      await order.save();
+    }
+
+    const userDocument = order.userId
+      ? await User.findById(order.userId).select("email name")
+      : null;
+    const user = {
+      email: userDocument?.email ?? order.customer.email,
+      name:
+        userDocument?.name ??
+        [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" "),
+    };
+
+    const trackingInfo = {
+      trackingNumber: trackingNumber.trim(),
+      carrierName: carrierName.trim(),
+      estimatedDeliveryDate: estimatedDeliveryDate.trim(),
+    };
+
+    try {
+      const result = await emailService.sendOrderShippedEmail(user, order, trackingInfo);
+      if (!result.ok) {
+        logger.error("Shipping notification email failed", {
+          orderId: order.id,
+          email: user.email,
+          error: result.error,
+        });
+      }
+    } catch (error) {
+      logger.error("Shipping notification email failed", {
+        orderId: order.id,
+        email: user.email,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Shipping notification email sent to ${user.email}`,
+    });
   },
 );
 

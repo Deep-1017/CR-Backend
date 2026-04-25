@@ -37,7 +37,7 @@ export interface IOrder extends Document {
         razorpayOrderId?: string;
         status: 'pending' | 'paid' | 'failed' | 'refunded';
     };
-    status: 'Pending' | 'Processing' | 'Confirmed' | 'Completed' | 'Cancelled';
+    status: 'Pending' | 'Processing' | 'Confirmed' | 'Shipped' | 'Completed' | 'Cancelled';
     confirmationEmailSentAt?: Date;
     confirmationEmailError?: string;
     createdAt?: Date;
@@ -79,7 +79,7 @@ export const orderValidationSchema = z.object({
         paymentIntentId: z.string().optional(),
         status: z.enum(['pending', 'paid', 'failed', 'refunded']).default('pending'),
     }),
-    status: z.enum(['Pending', 'Processing', 'Confirmed', 'Completed', 'Cancelled']).default('Pending'),
+    status: z.enum(['Pending', 'Processing', 'Confirmed', 'Shipped', 'Completed', 'Cancelled']).default('Pending'),
     confirmationEmailSentAt: z.date().optional(),
     confirmationEmailError: z.string().optional(),
     createdAt: z.date().optional(),
@@ -138,7 +138,7 @@ const OrderSchema: Schema = new Schema({
     },
     status: {
         type: String,
-        enum: ['Pending', 'Processing', 'Confirmed', 'Completed', 'Cancelled'],
+        enum: ['Pending', 'Processing', 'Confirmed', 'Shipped', 'Completed', 'Cancelled'],
         default: 'Pending'
     },
     confirmationEmailSentAt: { type: Date },

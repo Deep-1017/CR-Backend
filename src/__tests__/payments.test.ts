@@ -10,6 +10,17 @@ import Cart from '../models/cart.model';
 import razorpay from '../config/razorpay';
 import env from '../config/env';
 
+jest.mock('../services/orderEmail.service', () => ({
+    sendOrderConfirmationEmail: jest.fn(),
+}));
+
+jest.mock('../services/email.service', () => ({
+    isEmailConfigured: jest.fn(() => true),
+    logEmailConfigurationWarning: jest.fn(),
+}));
+
+import { sendOrderConfirmationEmail } from '../services/orderEmail.service';
+
 jest.setTimeout(30000);
 
 let mongoServer: MongoMemoryReplSet;
@@ -264,6 +275,9 @@ describe('Payment order creation', () => {
 
 describe('Payment webhook verification', () => {
     it('verifies signature and updates order successfully', async () => {
+        const mockedSendOrderConfirmationEmail =
+            sendOrderConfirmationEmail as unknown as jest.MockedFunction<typeof sendOrderConfirmationEmail>;
+        mockedSendOrderConfirmationEmail.mockResolvedValueOnce({ ok: true } as any);
         const user = await mongoose.connection.collection('users').findOne({ email: customerUser.email });
         const userId = user?._id.toString();
 
@@ -344,6 +358,10 @@ describe('Payment webhook verification', () => {
             const updatedCart = await Cart.findOne({ userId });
             expect(updatedCart?.items ?? []).toHaveLength(0);
         }
+
+        // fire-and-forget email should still be kicked off
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(sendOrderConfirmationEmail).toHaveBeenCalledTimes(1);
     });
 
     it('rejects tampered signature', async () => {

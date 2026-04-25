@@ -28,21 +28,22 @@ const deliverOrderConfirmationEmail = async (order: InstanceType<typeof Order>):
         return;
     }
 
-    try {
-        await sendOrderConfirmationEmail(order);
+    const result = await sendOrderConfirmationEmail(order);
+    if (result.ok) {
         order.confirmationEmailSentAt = new Date();
         order.confirmationEmailError = undefined;
         await order.save();
-    } catch (error) {
-        order.confirmationEmailSentAt = undefined;
-        order.confirmationEmailError = error instanceof Error ? error.message : 'Email delivery failed.';
-        await order.save();
-        logger.error('Order confirmation email failed', {
-            error: error instanceof Error ? error.message : error,
-            orderId: order.id,
-            email: order.customer.email,
-        });
+        return;
     }
+
+    order.confirmationEmailSentAt = undefined;
+    order.confirmationEmailError = result.error || 'Email delivery failed.';
+    await order.save();
+    logger.error('Order confirmation email failed', {
+        error: result.error,
+        orderId: order.id,
+        email: order.customer.email,
+    });
 };
 
 export const createRazorpayOrder = asyncHandler(async (req: Request, res: Response) => {
@@ -218,7 +219,22 @@ export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Resp
             requestId,
         });
 
-        await deliverOrderConfirmationEmail(order);
+        deliverOrderConfirmationEmail(order)
+            .then(() => {
+                logger.info('Order confirmation email dispatched', {
+                    orderId: order.id,
+                    email: order.customer.email,
+                    requestId,
+                });
+            })
+            .catch((error) => {
+                logger.error('Order confirmation email dispatch failed', {
+                    error: error instanceof Error ? error.message : error,
+                    orderId: order.id,
+                    email: order.customer.email,
+                    requestId,
+                });
+            });
 
         res.status(200).json({ 
             message: 'Payment verified and order confirmed',
@@ -250,31 +266,70 @@ export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Resp
 });
 
 export const resendOrderConfirmationEmail = asyncHandler(async (req: Request, res: Response) => {
+    const requestId = (req as Request & { id?: string }).id ?? 'unknown';
     const order = await Order.findById(req.params.orderId);
+    
     if (!order) {
+        logger.warn('Resend confirmation email - order not found', {
+            orderId: req.params.orderId,
+            requestId,
+        });
         throw new AppError('Order not found', 404);
     }
 
     const user = req.user as { role?: string; email?: string } | undefined;
     if (user?.role !== 'admin' && order.customer.email !== user?.email) {
+        logger.warn('Resend confirmation email - unauthorized access attempt', {
+            orderId: order.id,
+            userEmail: user?.email,
+            orderEmail: order.customer.email,
+            requestId,
+        });
         throw new AppError('Not authorised to resend this confirmation email', 403);
     }
 
     if (order.paymentStatus !== 'success') {
+        logger.warn('Resend confirmation email - order not paid', {
+            orderId: order.id,
+            paymentStatus: order.paymentStatus,
+            requestId,
+        });
         throw new AppError('Confirmation email can only be resent for paid orders', 400);
     }
+
+    logger.info('Resending order confirmation email', {
+        orderId: order.id,
+        email: order.customer.email,
+        requestId,
+    });
 
     await deliverOrderConfirmationEmail(order);
 
     if (!order.confirmationEmailSentAt) {
-        res.status(503).json({
+        logger.warn('Resend confirmation email - delivery failed', {
+            orderId: order.id,
+            error: order.confirmationEmailError,
+            requestId,
+        });
+        
+        res.status(200).json({
             message: order.confirmationEmailError ?? 'Unable to send confirmation email right now.',
+            confirmationEmailSentAt: undefined,
+            success: false,
         });
         return;
     }
 
+    logger.info('Resend confirmation email - success', {
+        orderId: order.id,
+        email: order.customer.email,
+        sentAt: order.confirmationEmailSentAt,
+        requestId,
+    });
+
     res.status(200).json({
         message: `Confirmation email sent to ${order.customer.email}.`,
         confirmationEmailSentAt: order.confirmationEmailSentAt,
+        success: true,
     });
 });
