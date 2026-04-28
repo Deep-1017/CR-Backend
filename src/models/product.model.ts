@@ -173,6 +173,7 @@ const ProductSchema: Schema<IProduct> = new Schema({
         virtuals: true,     // exposes the virtual 'id' field (string version of _id)
         transform: (_doc, ret) => {
             const obj = ret as any;
+            obj.id = obj._id?.toString();
             delete obj._id;
             delete obj.__v;
             return ret;

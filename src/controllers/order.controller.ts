@@ -243,11 +243,19 @@ export const getOrders = asyncHandler(async (_req: Request, res: Response) => {
     Order.find({})
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(limit),
+      .limit(limit)
+      .lean(),
     Order.countDocuments({}),
   ]);
 
-  res.json({ orders, total, page, pages: Math.ceil(total / limit) });
+  const serializedOrders = orders.map((order: any) => ({
+    ...order,
+    id: order._id?.toString(),
+    _id: undefined,
+    __v: undefined,
+  }));
+
+  res.json({ orders: serializedOrders, total, page, pages: Math.ceil(total / limit) });
 });
 
 export const getOrderById = asyncHandler(
