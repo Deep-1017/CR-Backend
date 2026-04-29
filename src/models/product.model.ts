@@ -22,6 +22,9 @@ export interface IProduct extends Document {
     description: string;
     rating: number;
     reviews: number;
+    averageRating: number;
+    totalReviews: number;
+    ratingDistribution: { 1: number; 2: number; 3: number; 4: number; 5: number };
     brand: string;
     condition: string;
     skillLevel: string;
@@ -127,6 +130,18 @@ const ProductSchema: Schema<IProduct> = new Schema({
     description: { type: String, required: true },
     rating: { type: Number, default: 0 },
     reviews: { type: Number, default: 0 },
+    averageRating: { type: Number, default: 0, min: 0, max: 5 },
+    totalReviews: { type: Number, default: 0, min: 0 },
+    ratingDistribution: {
+        type: {
+            1: { type: Number, default: 0 },
+            2: { type: Number, default: 0 },
+            3: { type: Number, default: 0 },
+            4: { type: Number, default: 0 },
+            5: { type: Number, default: 0 },
+        },
+        default: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    },
     brand: { type: String, required: true },
     condition: {
         type: String,
