@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import Product from "../models/product.model";
 import Order from "../models/order.model";
-import User from "../models/user.model";
+import User from "../models/User";
 import connectDB from "../config/db";
 
 dotenv.config();
@@ -28,6 +28,8 @@ const importData = async () => {
       name: "Admin",
       email: "admin@crmusic.com",
       password: "admin123",
+      provider: "local",
+      isEmailVerified: true,
       role: "admin",
     });
 

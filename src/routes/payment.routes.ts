@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect } from '../middleware/auth.middleware';
+import { optionalAuth, protect } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validate';
 import { createRazorpayOrder, resendOrderConfirmationEmail, verifyRazorpayWebhook } from '../controllers/payment.controller';
 import { createPaymentOrderSchema, verifyPaymentWebhookSchema } from '../validation/paymentValidation';
@@ -63,7 +63,7 @@ const router = express.Router();
  *       '500':
  *         description: Razorpay API error
  */
-router.post('/create-order', protect, validate(createPaymentOrderSchema), createRazorpayOrder);
+router.post('/create-order', optionalAuth, validate(createPaymentOrderSchema), createRazorpayOrder);
 router.post('/verify-webhook', validate(verifyPaymentWebhookSchema), verifyRazorpayWebhook);
 router.post('/:orderId/resend-confirmation', protect, resendOrderConfirmationEmail);
 

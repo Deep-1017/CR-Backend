@@ -38,6 +38,57 @@ const buildStockMessage = (
 ): string =>
     `Only ${stock} unit${stock === 1 ? '' : 's'} of ${product.name} - ${finish} - ${configuration} left in stock`;
 
+// ─── Transaction support detection ────────────────────────────────────────────
+// Cached after first probe so we never attempt (and fail) a transaction on a
+// standalone MongoDB instance again. This removes ~200-500ms of wasted latency
+// from every order/payment request.
+
+let _transactionsSupported: boolean | null = null;
+
+const probeTransactionSupport = async (): Promise<boolean> => {
+    if (_transactionsSupported !== null) return _transactionsSupported;
+
+    try {
+        const admin = mongoose.connection.db?.admin();
+        if (!admin) {
+            _transactionsSupported = false;
+            return false;
+        }
+
+        const info = await admin.command({ hello: 1 });
+
+        // Transactions require a replica set (setName present) or a sharded
+        // cluster (msg === 'isdbgrid').
+        const isReplicaSet = typeof info.setName === 'string' && info.setName.length > 0;
+        const isSharded = info.msg === 'isdbgrid';
+        _transactionsSupported = isReplicaSet || isSharded;
+    } catch {
+        _transactionsSupported = false;
+    }
+
+    if (!_transactionsSupported) {
+        logger.warn(
+            'MongoDB transactions unavailable (standalone instance detected). ' +
+            'Order processing will run without transactional guarantees.',
+            { timestamp: new Date().toISOString() }
+        );
+    } else {
+        logger.info('MongoDB transaction support confirmed (replica set / sharded cluster).');
+    }
+
+    return _transactionsSupported;
+};
+
+/**
+ * Starts a MongoDB session only if the server supports transactions.
+ * Returns `null` for standalone instances — callers should skip
+ * session-related logic when the return value is null.
+ */
+export const maybeStartSession = async (): Promise<ClientSession | null> => {
+    const supported = await probeTransactionSupport();
+    return supported ? await mongoose.startSession() : null;
+};
+
 export const reduceVariantStock = async (
     productId: string,
     variantId: string,
@@ -135,10 +186,20 @@ export const processOrderItems = async (
     return preparedItems;
 };
 
+/**
+ * Wraps an order-processing operation in a MongoDB transaction when available.
+ * On standalone instances (no replica set), runs the operation directly without
+ * a session — no failed transaction attempt, no wasted latency.
+ */
 export const handleStockErrors = async <T>(
-    session: ClientSession,
+    session: ClientSession | null,
     operation: (activeSession?: ClientSession) => Promise<T>
 ): Promise<T> => {
+    // No session → standalone mode, run directly
+    if (!session) {
+        return operation(undefined);
+    }
+
     try {
         return await session.withTransaction(() => operation(session));
     } catch (error) {
@@ -148,6 +209,8 @@ export const handleStockErrors = async <T>(
             message.includes('Transaction support is not available');
 
         if (transactionsUnsupported) {
+            // Update the cache so future calls skip sessions entirely
+            _transactionsSupported = false;
             logger.warn('MongoDB transactions unavailable; falling back to non-transactional order processing.');
             return operation(undefined);
         }

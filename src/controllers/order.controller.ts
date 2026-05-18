@@ -2,10 +2,12 @@ import { Request, Response } from "express";
 import mongoose from "mongoose";
 import Order from "../models/order.model";
 import User from "../models/User";
+import razorpay from "../config/razorpay";
+import env from "../config/env";
 import asyncHandler from "../utils/asyncHandler";
 import AppError from "../utils/appError";
 import logger from "../utils/logger";
-import { handleStockErrors, processOrderItems } from "../services/orderService";
+import { handleStockErrors, maybeStartSession, processOrderItems } from "../services/orderService";
 import * as emailService from "../services/emailService";
 import { GetMyOrdersQuery } from "../schemas/order.schema";
 
@@ -33,16 +35,21 @@ const formatOrderNumber = (id: string): string => {
   return `#ORD-${short}`;
 };
 
+const buildRetryReceipt = (orderId: string): string => {
+  // Razorpay receipts must stay within 40 characters.
+  return `retry_${orderId.slice(-12)}_${Date.now().toString(36)}`;
+};
+
 // ─── Controllers ──────────────────────────────────────────────────────────────
 
 export const addOrderItems = asyncHandler(
   async (req: Request, res: Response) => {
     const authUser = req.user as { id?: string } | undefined;
-    const session = await mongoose.startSession();
+    const session = await maybeStartSession();
 
     try {
-      const order = await handleStockErrors(session, async () => {
-        const items = await processOrderItems(req.body.items, session);
+      const order = await handleStockErrors(session, async (activeSession) => {
+        const items = await processOrderItems(req.body.items, activeSession);
         const computedTotal = items.reduce(
           (total, item) => total + item.priceAtPurchase * item.quantity,
           0,
@@ -64,7 +71,7 @@ export const addOrderItems = asyncHandler(
               totalAmount: computedTotal,
             },
           ],
-          { session },
+          activeSession ? { session: activeSession } : undefined,
         );
 
         return createdOrder;
@@ -72,7 +79,7 @@ export const addOrderItems = asyncHandler(
 
       res.status(201).json(order);
     } finally {
-      await session.endSession();
+      await session?.endSession();
     }
   },
 );
@@ -271,7 +278,21 @@ export const getOrderById = asyncHandler(
     if (!order) throw new AppError("Order not found", 404);
 
     const user = req.user as { id?: string; role?: string } | undefined;
-    if (user?.role !== "admin" && order.userId !== user?.id) {
+
+    // Determine access
+    const isAdmin = user?.role === "admin";
+    const isOwner = Boolean(user?.id && order.userId === user.id);
+
+    const guestEmail = typeof req.query.guestEmail === "string"
+      ? req.query.guestEmail.trim().toLowerCase()
+      : "";
+    const isGuestOwner = Boolean(
+      guestEmail &&
+      order.guestEmail &&
+      order.guestEmail.toLowerCase() === guestEmail
+    );
+
+    if (!isAdmin && !isOwner && !isGuestOwner) {
       throw new AppError("Not authorised to view this order", 403);
     }
 
@@ -279,14 +300,163 @@ export const getOrderById = asyncHandler(
   },
 );
 
+export const retryOrderPayment = asyncHandler(
+  async (req: Request, res: Response) => {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      throw new AppError("Invalid order ID format", 400);
+    }
+
+    const user = req.user as { id?: string } | undefined;
+    if (!user?.id) {
+      throw new AppError("Unauthorized", 401);
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      throw new AppError("Order not found", 404);
+    }
+
+    if (order.userId !== user.id) {
+      throw new AppError("Not authorised to retry payment for this order", 403);
+    }
+
+    if (!["failed", "pending"].includes(order.paymentStatus)) {
+      throw new AppError("Payment can only be retried for failed or pending orders", 400);
+    }
+
+    if (order.paymentMethod !== "razorpay") {
+      throw new AppError("Payment retry is only available for Razorpay orders", 400);
+    }
+
+    const amount = Math.round(order.totalAmount * 100);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new AppError("Invalid order amount", 400);
+    }
+
+    try {
+      const razorpayOrder = await razorpay.orders.create({
+        amount,
+        currency: "INR",
+        receipt: buildRetryReceipt(order._id.toString()),
+      });
+
+      order.paymentId = razorpayOrder.id;
+      order.paymentStatus = "pending";
+      order.amountPaid = 0;
+      order.paymentDetails = {
+        ...order.paymentDetails,
+        provider: "razorpay",
+        paymentIntentId: razorpayOrder.id,
+        razorpayOrderId: razorpayOrder.id,
+        status: "pending",
+      };
+
+      await order.save({ validateModifiedOnly: true });
+
+      res.status(200).json({
+        razorpayOrderId: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency ?? "INR",
+        key: env.RAZORPAY_KEY_ID,
+      });
+    } catch (error) {
+      logger.error("Razorpay retry order creation failed", {
+        error: error instanceof Error ? error.message : error,
+        orderId: order.id,
+        userId: user.id,
+      });
+      throw new AppError("Failed to create Razorpay retry order", 500);
+    }
+  },
+);
+
 export const updateOrderStatus = asyncHandler(
   async (req: Request, res: Response) => {
+    const newStatus: string = req.body.status;
+
     const order = await Order.findByIdAndUpdate(
       req.params.id,
-      { status: req.body.status },
+      { status: newStatus },
       { new: true, runValidators: true },
     );
     if (!order) throw new AppError("Order not found", 404);
+
+    // ─── Trigger status-based email notifications ─────────────────────────
+    const shouldSendShipped = newStatus === "Shipped";
+    const shouldSendDelivered = newStatus === "Delivered" || newStatus === "Completed";
+    const shouldSendCancelled = newStatus === "Cancelled";
+
+    if (shouldSendShipped || shouldSendDelivered || shouldSendCancelled) {
+      // Resolve the customer's name & email
+      const userDocument = order.userId
+        ? await User.findById(order.userId).select("email name")
+        : null;
+
+      const recipient = {
+        email: userDocument?.email ?? order.customer?.email,
+        name:
+          (userDocument?.name ??
+          [order.customer?.firstName, order.customer?.lastName]
+            .filter(Boolean)
+            .join(" ")) || "Customer",
+      };
+
+      if (recipient.email) {
+        try {
+          if (shouldSendShipped) {
+            const result = await emailService.sendOrderShippedEmail(
+              recipient,
+              order,
+              {
+                trackingNumber: req.body.trackingNumber ?? "",
+                carrierName: req.body.carrierName ?? "",
+                estimatedDeliveryDate: req.body.estimatedDeliveryDate ?? "",
+              },
+            );
+            if (!result.ok) {
+              logger.error("Shipped email failed (non-blocking)", {
+                orderId: order.id,
+                email: recipient.email,
+                error: result.error,
+              });
+            }
+          } else if (shouldSendDelivered) {
+            const result = await emailService.sendOrderDeliveredEmail(
+              recipient,
+              order,
+            );
+            if (!result.ok) {
+              logger.error("Delivered email failed (non-blocking)", {
+                orderId: order.id,
+                email: recipient.email,
+                error: result.error,
+              });
+            }
+          } else if (shouldSendCancelled) {
+            const result = await emailService.sendOrderCancellationEmail(
+              recipient,
+              order,
+            );
+            if (!result.ok) {
+              logger.error("Cancellation email failed (non-blocking)", {
+                orderId: order.id,
+                email: recipient.email,
+                error: result.error,
+              });
+            }
+          }
+        } catch (emailError) {
+          // Email failure must never break the status update response
+          logger.error("Status email dispatch error (non-blocking)", {
+            orderId: order.id,
+            email: recipient.email,
+            status: newStatus,
+            error: emailError instanceof Error ? emailError.message : String(emailError),
+          });
+        }
+      }
+    }
+
     res.json(order);
   },
 );

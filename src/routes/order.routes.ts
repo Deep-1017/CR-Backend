@@ -4,10 +4,11 @@ import {
   getMyOrders,
   getOrders,
   getOrderById,
+  retryOrderPayment,
   updateOrderStatus,
   deleteOrder,
 } from "../controllers/order.controller";
-import { protect, admin } from "../middleware/auth.middleware";
+import { protect, admin, optionalAuth } from "../middleware/auth.middleware";
 import { validate, validateQuery } from "../middleware/validate";
 import {
   addOrderSchema,
@@ -110,6 +111,7 @@ router
  *         description: Forbidden – admin only
  */
 router.get("/admin/all", protect, admin, getOrders);
+router.post("/:id/retry-payment", protect, retryOrderPayment);
 
 // ─── /api/v1/orders/:id ───────────────────────────────────────────────────────
 
@@ -183,7 +185,7 @@ router.get("/admin/all", protect, admin, getOrders);
  */
 router
   .route("/:id")
-  .get(protect, getOrderById)
+  .get(optionalAuth, getOrderById)
   .put(protect, admin, validate(updateOrderStatusSchema), updateOrderStatus)
   .delete(protect, admin, deleteOrder);
 

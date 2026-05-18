@@ -5,9 +5,14 @@ import {
   login,
   logout,
   getProfile,
+  updateProfile,
   forgotPassword,
   resetPassword,
   googleCallback,
+  verifyEmail,
+  resendVerification,
+  refresh,
+  changePassword,
 } from '../controllers/auth.controller';
 import { protect } from '../middleware/auth.middleware';
 
@@ -15,10 +20,15 @@ const router = Router();
 
 router.post('/register', register);
 router.post('/login', login);
+router.post('/refresh', refresh);
 router.post('/logout', logout);
 router.get('/profile', protect, getProfile);
+router.patch('/profile', protect, updateProfile);
+router.patch('/change-password', protect, changePassword);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password/:token', resetPassword);
+router.get('/verify-email', verifyEmail);
+router.post('/resend-verification', protect, resendVerification);
 
 router.get(
   '/google',

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken } from '../utils/jwt';
+import { verifyAccessToken } from '../utils/jwt';
 
 export const protect = (
   req: Request,
@@ -20,7 +20,7 @@ export const protect = (
       });
     }
 
-    const decoded = verifyToken(token);
+    const decoded = verifyAccessToken(token);
     req.user = {
       id: decoded.id,
       email: decoded.email,
@@ -52,3 +52,35 @@ export const requireAdmin = (
 };
 
 export const admin = requireAdmin;
+
+/**
+ * Optional authentication middleware.
+ * If a valid JWT is present, attaches `req.user`; otherwise continues without error.
+ * Use this for endpoints that should work for both authenticated and guest users.
+ */
+export const optionalAuth = (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+) => {
+  try {
+    const token =
+      req.cookies?.auth_token ||
+      (req.headers.authorization?.startsWith('Bearer ')
+        ? req.headers.authorization.split(' ')[1]
+        : null);
+
+    if (token) {
+      const decoded = verifyAccessToken(token);
+      req.user = {
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+        name: '',
+      };
+    }
+  } catch {
+    // Invalid / expired token — treat as guest, don't block the request
+  }
+  next();
+};

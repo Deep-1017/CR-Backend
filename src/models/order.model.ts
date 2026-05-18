@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 export interface IOrder extends Document {
     userId?: string;
+    guestEmail?: string;
     customer: {
         firstName: string;
         lastName: string;
@@ -90,6 +91,7 @@ export type OrderValidationInput = z.infer<typeof orderValidationSchema>;
 
 const OrderSchema: Schema = new Schema({
     userId: { type: String, index: true },
+    guestEmail: { type: String, index: true },
     customer: {
         firstName: { type: String, required: true },
         lastName: { type: String, required: true },

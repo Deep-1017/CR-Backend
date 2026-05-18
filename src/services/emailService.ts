@@ -18,7 +18,7 @@ export type EmailSendResult =
   | { ok: true }
   | { ok: false; error: string };
 
-type TemplateName = 'orderConfirmation.html' | 'orderShipped.html' | 'orderDelivered.html' | 'passwordReset.html';
+type TemplateName = 'orderConfirmation.html' | 'orderShipped.html' | 'orderDelivered.html' | 'orderCancellation.html' | 'passwordReset.html' | 'emailVerification.html';
 
 const smtpConfigured = Boolean(
   env.SMTP_HOST &&
@@ -363,5 +363,63 @@ export const sendOrderDeliveredEmail = async (
     subject: `Delivered: your CR Music order ${orderNumber}`,
     html,
     text: `Delivered: ${orderNumber}\nView order: ${orderUrl}`,
+  });
+};
+
+export const sendOrderCancellationEmail = async (
+  user: Pick<IUser, 'email' | 'name'>,
+  order: IOrder
+): Promise<EmailSendResult> => {
+  const template = await readTemplate('orderCancellation.html');
+  const customerName = (order.customer?.firstName || user.name || 'there').trim();
+  const orderNumber = order.id;
+  const orderUrl = getOrderUrl(orderNumber);
+  const items = buildItemsRowsHtmlNoPrice(order);
+  const itemsCount = String(order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) ?? 0);
+  const totalAmount = formatCurrency(order.amountPaid || order.totalAmount || 0);
+  const cancellationDate = formatDate(new Date());
+
+  // Show refund info only if payment was actually collected
+  const wasPaid = order.paymentStatus === 'success' && (order.amountPaid ?? 0) > 0;
+  const refundNote = wasPaid
+    ? `A refund of ${totalAmount} will be initiated to your original payment method. Please allow 5–7 business days for the amount to reflect in your account.`
+    : 'No payment was charged for this order.';
+
+  const html = applyTemplateVariables(template, {
+    customerName: escapeHtml(customerName),
+    orderNumber: escapeHtml(orderNumber),
+    orderUrl: escapeHtml(orderUrl),
+    items,
+    itemsCount: escapeHtml(itemsCount),
+    totalAmount: escapeHtml(totalAmount),
+    cancellationDate: escapeHtml(cancellationDate),
+    refundNote: escapeHtml(refundNote),
+  });
+
+  return sendEmail({
+    to: user.email,
+    subject: `Cancelled: your CR Music order ${orderNumber}`,
+    html,
+    text: `Order cancelled: ${orderNumber}\n${refundNote}\nView order: ${orderUrl}`,
+  });
+};
+
+export const sendEmailVerificationEmail = async (
+  user: Pick<IUser, 'email' | 'name'>,
+  verificationUrl: string
+): Promise<EmailSendResult> => {
+  const template = await readTemplate('emailVerification.html');
+  const customerName = (user.name || 'there').trim();
+
+  const html = applyTemplateVariables(template, {
+    customerName: escapeHtml(customerName),
+    verificationUrl: escapeHtml(verificationUrl),
+  });
+
+  return sendEmail({
+    to: user.email,
+    subject: 'Verify your CR Music email address',
+    html,
+    text: `Hi ${customerName}, verify your email by visiting: ${verificationUrl}`,
   });
 };

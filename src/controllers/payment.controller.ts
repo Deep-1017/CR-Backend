@@ -1,16 +1,16 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
-import mongoose from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import razorpay from '../config/razorpay';
 import env from '../config/env';
 import Order from '../models/order.model';
+import ProcessedWebhookEvent from '../models/ProcessedWebhookEvent';
 import Cart from '../models/cart.model';
 import asyncHandler from '../utils/asyncHandler';
 import AppError from '../utils/appError';
 import logger from '../utils/logger';
 import { CreatePaymentOrderInput, VerifyPaymentWebhookInput } from '../validation/paymentValidation';
-import { handleStockErrors, processOrderItems } from '../services/orderService';
+import { handleStockErrors, maybeStartSession, processOrderItems } from '../services/orderService';
 import { isEmailConfigured, logEmailConfigurationWarning } from '../services/email.service';
 import { sendOrderConfirmationEmail } from '../services/orderEmail.service';
 
@@ -49,7 +49,7 @@ const deliverOrderConfirmationEmail = async (order: InstanceType<typeof Order>):
 export const createRazorpayOrder = asyncHandler(async (req: Request, res: Response) => {
     const authUser = req.user as { id?: string; name?: string; email?: string } | undefined;
     const { customer, cartItems, pricing, currency } = req.body as CreatePaymentOrderInput;
-    const session = await mongoose.startSession();
+    const session = await maybeStartSession();
 
     try {
         const paymentOrder = await handleStockErrors(session, async (activeSession) => {
@@ -77,7 +77,8 @@ export const createRazorpayOrder = asyncHandler(async (req: Request, res: Respon
             });
 
             const [order] = await Order.create([{
-                userId: authUser?.id,
+                userId: authUser?.id || undefined,
+                guestEmail: authUser?.id ? undefined : customer.email,
                 customer: {
                     ...customer,
                     email: authUser?.email ?? customer.email,
@@ -144,7 +145,7 @@ export const createRazorpayOrder = asyncHandler(async (req: Request, res: Respon
         });
         throw new AppError(publicMessage, 500);
     } finally {
-        await session.endSession();
+        await session?.endSession();
     }
 });
 
@@ -152,6 +153,7 @@ export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Resp
     const requestId = (req as Request & { id?: string }).id ?? 'unknown';
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body as VerifyPaymentWebhookInput;
 
+    // ─── Signature verification ───────────────────────────────────────────────
     const generatedSignature = crypto
         .createHmac('sha256', env.RAZORPAY_SECRET ?? '')
         .update(`${razorpay_order_id}|${razorpay_payment_id}`)
@@ -166,6 +168,43 @@ export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Resp
         throw new AppError('Invalid webhook signature', 403);
     }
 
+    // ─── Idempotency check ────────────────────────────────────────────────────
+    // Use razorpay_payment_id as the idempotency key (unique per payment attempt)
+    const idempotencyKey = razorpay_payment_id;
+
+    try {
+        const alreadyProcessed = await ProcessedWebhookEvent.findOne({ eventId: idempotencyKey });
+        if (alreadyProcessed) {
+            logger.info('Razorpay webhook already processed (skipping)', {
+                eventId: idempotencyKey,
+                razorpayOrderId: razorpay_order_id,
+                processedAt: alreadyProcessed.processedAt,
+                requestId,
+            });
+            res.status(200).json({ status: 'already_processed' });
+            return;
+        }
+
+        // Record the event ID before processing so a concurrent retry also gets caught
+        await ProcessedWebhookEvent.create({ eventId: idempotencyKey });
+    } catch (err: unknown) {
+        // Handle race condition: if two requests arrive simultaneously, one will
+        // hit a duplicate key error (11000) — treat that as "already processed"
+        const mongoError = err as { code?: number };
+        if (mongoError.code === 11000) {
+            logger.info('Razorpay webhook duplicate key (concurrent retry)', {
+                eventId: idempotencyKey,
+                razorpayOrderId: razorpay_order_id,
+                requestId,
+            });
+            res.status(200).json({ status: 'already_processed' });
+            return;
+        }
+        // Unexpected DB error — let it propagate
+        throw err;
+    }
+
+    // ─── Order confirmation logic ─────────────────────────────────────────────
     const order = await Order.findOne({
         $or: [{ paymentId: razorpay_order_id }, { 'paymentDetails.razorpayOrderId': razorpay_order_id }],
     });

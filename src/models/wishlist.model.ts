@@ -1,37 +1,35 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
 
-export interface ICartItem {
+export interface IWishlistItem {
   product: Types.ObjectId;
   variantKey?: string;
-  quantity: number;
   addedAt: Date;
 }
 
-export interface ICart extends Document {
+export interface IWishlist extends Document {
   user: Types.ObjectId;
-  items: ICartItem[];
+  items: IWishlistItem[];
 }
 
-const CartItemSchema = new Schema<ICartItem>(
+const WishlistItemSchema = new Schema<IWishlistItem>(
   {
     product: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
     variantKey: { type: String, default: '' },
-    quantity: { type: Number, required: true, min: 1 },
     addedAt: { type: Date, default: Date.now },
   },
   { _id: false }
 );
 
-const CartSchema = new Schema<ICart>(
+const WishlistSchema = new Schema<IWishlist>(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true, index: true },
-    items: { type: [CartItemSchema], default: [] },
+    items: { type: [WishlistItemSchema], default: [] },
   },
   { timestamps: true }
 );
 
-CartSchema.index({ user: 1, 'items.product': 1, 'items.variantKey': 1 });
+WishlistSchema.index({ user: 1, 'items.product': 1, 'items.variantKey': 1 });
 
-const Cart = mongoose.model<ICart>('Cart', CartSchema);
+const Wishlist = mongoose.model<IWishlist>('Wishlist', WishlistSchema);
 
-export default Cart;
+export default Wishlist;
