@@ -18,6 +18,7 @@ import reviewRoutes from './routes/review.routes';
 import globalReviewRoutes from './routes/globalReview.routes';
 import wishlistRoutes from './routes/wishlist.routes';
 import cartRoutes from './routes/cart.routes';
+import stockAlertRoutes from './routes/stockAlert.routes';
 import { protect } from './middleware/auth.middleware';
 import { getDefaultAddress } from './controllers/address.controller';
 import { errorHandler } from './middleware/error.middleware';
@@ -69,6 +70,7 @@ app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/upload', uploadRoutes);
 app.use('/api/v1/wishlists', wishlistRoutes);
 app.use('/api/v1/cart', cartRoutes);
+app.use('/api/v1/stock-alerts', stockAlertRoutes);
 app.use('/api/v1/users/addresses', addressRoutes);
 app.get('/api/v1/users/default-address', protect, getDefaultAddress);
 

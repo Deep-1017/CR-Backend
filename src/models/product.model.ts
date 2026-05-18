@@ -198,6 +198,12 @@ const ProductSchema: Schema<IProduct> = new Schema({
 
 ProductSchema.index({ 'variants.sku': 1 }, { unique: true, sparse: true });
 
+// Full-text search index with weighted fields for relevance ranking
+ProductSchema.index(
+    { name: 'text', description: 'text', brand: 'text' },
+    { weights: { name: 10, brand: 5, description: 1 }, name: 'product_text_search' }
+);
+
 ProductSchema.pre('validate', function syncProductDerivedFields(next) {
     if (this.basePrice == null && this.price != null) {
         this.basePrice = this.price;

@@ -18,7 +18,7 @@ export type EmailSendResult =
   | { ok: true }
   | { ok: false; error: string };
 
-type TemplateName = 'orderConfirmation.html' | 'orderShipped.html' | 'orderDelivered.html' | 'orderCancellation.html' | 'passwordReset.html' | 'emailVerification.html';
+type TemplateName = 'orderConfirmation.html' | 'orderShipped.html' | 'orderDelivered.html' | 'orderCancellation.html' | 'passwordReset.html' | 'emailVerification.html' | 'backInStock.html' | 'stockAlertConfirmation.html';
 
 const smtpConfigured = Boolean(
   env.SMTP_HOST &&
@@ -190,6 +190,9 @@ const buildShippingAddress = (order: IOrder): string => {
 
 const getOrderUrl = (orderId: string): string =>
   env.FRONTEND_URL ? `${env.FRONTEND_URL}/orders/${orderId}` : orderId;
+
+const getProductUrl = (productId: string): string =>
+  env.FRONTEND_URL ? `${env.FRONTEND_URL}/product/${productId}` : productId;
 
 const buildItemsRowsHtml = (order: IOrder): string =>
   order.items
@@ -421,5 +424,51 @@ export const sendEmailVerificationEmail = async (
     subject: 'Verify your CR Music email address',
     html,
     text: `Hi ${customerName}, verify your email by visiting: ${verificationUrl}`,
+  });
+};
+
+export const sendBackInStockEmail = async (input: {
+  to: string;
+  productId: string;
+  productName: string;
+  productImage: string;
+}): Promise<EmailSendResult> => {
+  const template = await readTemplate('backInStock.html');
+  const productUrl = getProductUrl(input.productId);
+  const html = applyTemplateVariables(template, {
+    productName: escapeHtml(input.productName),
+    productImage: escapeHtml(input.productImage),
+    productUrl: escapeHtml(productUrl),
+  });
+
+  return sendEmail({
+    to: input.to,
+    subject: `${input.productName} is back in stock`,
+    html,
+    text: `${input.productName} is back in stock.\nView product: ${productUrl}`,
+  });
+};
+
+export const sendStockAlertConfirmationEmail = async (input: {
+  to: string;
+  productId: string;
+  productName: string;
+  productImage: string;
+  variantLabel: string;
+}): Promise<EmailSendResult> => {
+  const template = await readTemplate('stockAlertConfirmation.html');
+  const productUrl = getProductUrl(input.productId);
+  const html = applyTemplateVariables(template, {
+    productName: escapeHtml(input.productName),
+    productImage: escapeHtml(input.productImage),
+    productUrl: escapeHtml(productUrl),
+    variantLabel: escapeHtml(input.variantLabel),
+  });
+
+  return sendEmail({
+    to: input.to,
+    subject: `We'll notify you when ${input.productName} is back`,
+    html,
+    text: `You're on the list for ${input.productName} (${input.variantLabel}). We'll email you when it is back in stock.\nView product: ${productUrl}`,
   });
 };

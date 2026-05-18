@@ -10,6 +10,7 @@ import {
     updateProductVariant,
     deleteProductVariant,
 } from '../controllers/product.controller';
+import { searchProducts, autocompleteProducts } from '../controllers/search.controller';
 import { protect, admin } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validate';
 import {
@@ -25,6 +26,10 @@ router.route('/')
     .get(getProducts)
     .post(protect, admin, validate(createProductSchema), createProduct);
 
+// Full-text search & autocomplete — must be above /:id to avoid param clash
+router.get('/search', searchProducts);
+router.get('/autocomplete', autocompleteProducts);
+
 router.route('/:productId/variants')
     .get(getProductVariants)
     .post(protect, admin, validate(createProductVariantSchema), addProductVariant);
@@ -39,3 +44,4 @@ router.route('/:id')
     .delete(protect, admin, deleteProduct);
 
 export default router;
+

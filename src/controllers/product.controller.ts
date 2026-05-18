@@ -4,6 +4,7 @@ import Product from '../models/product.model';
 import asyncHandler from '../utils/asyncHandler';
 import AppError from '../utils/appError';
 import { getTotalStock, isVariantAvailable } from '../utils/productHelpers';
+import { notifyBackInStockAlerts } from '../services/stockAlert.service';
 
 type VariantUpdate = {
     configuration?: string;
@@ -71,6 +72,16 @@ export const updateProduct = asyncHandler(async (req: Request, res: Response) =>
 
     product.set(req.body);
     await product.save();
+
+    if (Array.isArray(req.body.variants)) {
+        const variantsBackInStock = product.variants.filter((variant) => variant.stock > 0);
+
+        await Promise.all(
+            variantsBackInStock.map((variant) =>
+                notifyBackInStockAlerts(product, variant.variantId.toString())
+            )
+        );
+    }
 
     res.json(product);
 });
@@ -161,6 +172,11 @@ export const updateProductVariant = asyncHandler(async (req: Request, res: Respo
     if (updates.images !== undefined) variant.images = updates.images;
 
     await product.save();
+
+    if (updates.stock !== undefined && variant.stock > 0) {
+        await notifyBackInStockAlerts(product, variant.variantId.toString());
+    }
+
     res.json(product);
 });
 
