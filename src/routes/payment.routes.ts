@@ -1,7 +1,7 @@
 import express from 'express';
 import { optionalAuth, protect } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validate';
-import { createRazorpayOrder, resendOrderConfirmationEmail, verifyRazorpayWebhook } from '../controllers/payment.controller';
+import { createRazorpayOrder, handlePaymentFailed, resendOrderConfirmationEmail, verifyRazorpayWebhook } from '../controllers/payment.controller';
 import { createPaymentOrderSchema, verifyPaymentWebhookSchema } from '../validation/paymentValidation';
 
 const router = express.Router();
@@ -65,6 +65,7 @@ const router = express.Router();
  */
 router.post('/create-order', optionalAuth, validate(createPaymentOrderSchema), createRazorpayOrder);
 router.post('/verify-webhook', validate(verifyPaymentWebhookSchema), verifyRazorpayWebhook);
+router.post('/failed', optionalAuth, handlePaymentFailed);
 router.post('/:orderId/resend-confirmation', protect, resendOrderConfirmationEmail);
 
 export default router;

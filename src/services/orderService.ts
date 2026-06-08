@@ -135,6 +135,43 @@ export const reduceVariantStock = async (
     );
 };
 
+export const restoreVariantStock = async (
+    productId: string,
+    variantId: string,
+    quantity: number,
+    session?: ClientSession
+): Promise<void> => {
+    assertObjectId(productId, 'productId');
+    assertObjectId(variantId, 'variantId');
+
+    await Product.findOneAndUpdate(
+        {
+            _id: productId,
+            variants: { $elemMatch: { variantId: new mongoose.Types.ObjectId(variantId) } },
+        },
+        { $inc: { 'variants.$.stock': quantity } },
+        { new: true, runValidators: true, ...(session ? { session } : {}) }
+    );
+};
+
+export const restoreOrderStock = async (
+    items: Array<{ productId: mongoose.Types.ObjectId | string; variantId: mongoose.Types.ObjectId | string; quantity: number }>,
+    session?: ClientSession
+): Promise<void> => {
+    for (const item of items) {
+        try {
+            await restoreVariantStock(item.productId.toString(), item.variantId.toString(), item.quantity, session);
+        } catch (err) {
+            logger.error('Failed to restore variant stock', {
+                productId: item.productId.toString(),
+                variantId: item.variantId.toString(),
+                quantity: item.quantity,
+                error: err instanceof Error ? err.message : err,
+            });
+        }
+    }
+};
+
 export const processOrderItems = async (
     cartItems: CartItemInput[],
     session?: ClientSession

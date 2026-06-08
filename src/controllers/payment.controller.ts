@@ -10,7 +10,7 @@ import asyncHandler from '../utils/asyncHandler';
 import AppError from '../utils/appError';
 import logger from '../utils/logger';
 import { CreatePaymentOrderInput, VerifyPaymentWebhookInput } from '../validation/paymentValidation';
-import { handleStockErrors, maybeStartSession, processOrderItems } from '../services/orderService';
+import { handleStockErrors, maybeStartSession, processOrderItems, restoreOrderStock } from '../services/orderService';
 import { isEmailConfigured, logEmailConfigurationWarning } from '../services/email.service';
 import { sendOrderConfirmationEmail } from '../services/orderEmail.service';
 
@@ -302,6 +302,62 @@ export const verifyRazorpayWebhook = asyncHandler(async (req: Request, res: Resp
         });
         throw new AppError('Failed to verify payment webhook', 500);
     }
+});
+
+export const handlePaymentFailed = asyncHandler(async (req: Request, res: Response) => {
+    const { razorpay_order_id } = req.body as { razorpay_order_id?: string };
+
+    if (!razorpay_order_id || typeof razorpay_order_id !== 'string') {
+        throw new AppError('razorpay_order_id is required', 400);
+    }
+
+    // Atomically mark the order as failed only if it is still pending.
+    // Using findOneAndUpdate prevents concurrent calls from double-restoring stock.
+    const order = await Order.findOneAndUpdate(
+        {
+            $or: [
+                { paymentId: razorpay_order_id },
+                { 'paymentDetails.razorpayOrderId': razorpay_order_id },
+            ],
+            paymentStatus: 'pending',
+        },
+        { $set: { paymentStatus: 'failed' } },
+        { new: true }
+    );
+
+    if (!order) {
+        // Check whether the order exists but is in a terminal state (already failed / succeeded).
+        const existing = await Order.findOne({
+            $or: [
+                { paymentId: razorpay_order_id },
+                { 'paymentDetails.razorpayOrderId': razorpay_order_id },
+            ],
+        });
+
+        if (!existing) throw new AppError('Order not found', 404);
+
+        if (existing.paymentStatus === 'failed') {
+            res.status(200).json({ message: 'Payment already recorded as failed' });
+            return;
+        }
+
+        throw new AppError('Cannot mark a successful payment as failed', 400);
+    }
+
+    await restoreOrderStock(
+        order.items.map((item) => ({
+            productId: item.productId,
+            variantId: item.variantId,
+            quantity: item.quantity,
+        }))
+    );
+
+    logger.info('Payment failed: stock restored for all order items', {
+        orderId: order.id,
+        razorpayOrderId: razorpay_order_id,
+    });
+
+    res.status(200).json({ message: 'Payment failure recorded and stock restored' });
 });
 
 export const resendOrderConfirmationEmail = asyncHandler(async (req: Request, res: Response) => {

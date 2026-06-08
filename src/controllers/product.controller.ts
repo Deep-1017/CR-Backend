@@ -5,7 +5,6 @@ import asyncHandler from '../utils/asyncHandler';
 import AppError from '../utils/appError';
 import { getTotalStock, isVariantAvailable } from '../utils/productHelpers';
 import { notifyBackInStockAlerts } from '../services/stockAlert.service';
-
 type VariantUpdate = {
     configuration?: string;
     finish?: string;

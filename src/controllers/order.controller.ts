@@ -7,7 +7,7 @@ import env from "../config/env";
 import asyncHandler from "../utils/asyncHandler";
 import AppError from "../utils/appError";
 import logger from "../utils/logger";
-import { handleStockErrors, maybeStartSession, processOrderItems } from "../services/orderService";
+import { handleStockErrors, maybeStartSession, processOrderItems, reduceVariantStock, restoreOrderStock } from "../services/orderService";
 import * as emailService from "../services/emailService";
 import { GetMyOrdersQuery } from "../schemas/order.schema";
 
@@ -333,7 +333,27 @@ export const retryOrderPayment = asyncHandler(
       throw new AppError("Invalid order amount", 400);
     }
 
+    // When a previous payment attempt failed, stock was restored at that point.
+    // Re-reserve stock before creating a fresh Razorpay order.
+    const needsStockReservation = order.paymentStatus === "failed";
+    let stockReserved = false;
+    const session = needsStockReservation ? await maybeStartSession() : null;
+
     try {
+      if (needsStockReservation) {
+        await handleStockErrors(session, async (activeSession) => {
+          for (const item of order.items) {
+            await reduceVariantStock(
+              item.productId.toString(),
+              item.variantId.toString(),
+              item.quantity,
+              activeSession
+            );
+          }
+        });
+        stockReserved = true;
+      }
+
       const razorpayOrder = await razorpay.orders.create({
         amount,
         currency: "INR",
@@ -360,12 +380,24 @@ export const retryOrderPayment = asyncHandler(
         key: env.RAZORPAY_KEY_ID,
       });
     } catch (error) {
+      if (stockReserved) {
+        await restoreOrderStock(
+          order.items.map((item) => ({
+            productId: item.productId,
+            variantId: item.variantId,
+            quantity: item.quantity,
+          }))
+        );
+      }
       logger.error("Razorpay retry order creation failed", {
         error: error instanceof Error ? error.message : error,
         orderId: order.id,
         userId: user.id,
       });
+      if (error instanceof AppError) throw error;
       throw new AppError("Failed to create Razorpay retry order", 500);
+    } finally {
+      await session?.endSession();
     }
   },
 );
@@ -380,6 +412,18 @@ export const updateOrderStatus = asyncHandler(
       { new: true, runValidators: true },
     );
     if (!order) throw new AppError("Order not found", 404);
+
+    // Restore stock when an order is cancelled, unless a prior payment failure
+    // already restored it (paymentStatus === 'failed').
+    if (newStatus === "Cancelled" && order.paymentStatus !== "failed") {
+      await restoreOrderStock(
+        order.items.map((item) => ({
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: item.quantity,
+        }))
+      );
+    }
 
     // ─── Trigger status-based email notifications ─────────────────────────
     const shouldSendShipped = newStatus === "Shipped";
